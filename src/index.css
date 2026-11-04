@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #070709;
+    color: #F4F4F6;
+    font-family: "Segoe UI", "Plus Jakarta Sans", sans-serif;
+    font-size: 12px;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .font-mono {
+    font-family: "Consolas", "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom 5px Obsidian Leica Matte Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0E0E12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2E2E3A;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #E5A93C;
+}
