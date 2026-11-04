@@ -1,564 +1,413 @@
-/**
- * Pure Mathematical ISP, 1D/3D LUT Color Grading, .CUBE Parser, Gimbal EMA PTZ,
- * and 64-Bin RGB/Luma Histogram Engine for LEICA // C270 OPTIX STUDIO.
- * Mirrors the exact mathematical pipeline of `core/color_lut.py`, `core/camera_engine.py`,
- * and `core/preset_manager.py`.
- */
+export type StudioLookName =
+  | 'Natural (Off)'
+  | 'Warm Studio'
+  | 'Clean Daylight'
+  | 'Soft Portrait'
+  | 'Cinema Teal'
+  | 'Classic B&W';
 
-export type FilmLookName =
-  | "Rec.709 Neutral"
-  | "Kodak Portra 400"
-  | "Leica Monochrome"
-  | "Teal & Orange"
-  | "Matte Obsidian"
-  | "Warm Tungsten";
-
-export const FILM_LOOK_NAMES: FilmLookName[] = [
-  "Rec.709 Neutral",
-  "Kodak Portra 400",
-  "Leica Monochrome",
-  "Teal & Orange",
-  "Matte Obsidian",
-  "Warm Tungsten",
+export const STUDIO_LOOK_NAMES: StudioLookName[] = [
+  'Natural (Off)',
+  'Warm Studio',
+  'Clean Daylight',
+  'Soft Portrait',
+  'Cinema Teal',
+  'Classic B&W',
 ];
 
-export type AIStudioMode =
-  | "Off (Natural Scene)"
-  | "Studio Spotlight (Dim Background)"
-  | "Optical Bokeh Blur (DSLR Portrait)"
-  | "Custom Studio Backdrop";
+export type BackgroundMode =
+  | 'Off (Natural Background)'
+  | 'Subtle Studio Spotlight'
+  | 'Soft Bokeh Blur'
+  | 'Custom Backdrop';
 
 export interface StudioParams {
-  // Zone B - Card 1: C270 30-FPS Hardware Engine
-  manual_exposure_lock: boolean;
-  anti_flicker_50hz: boolean;
-  hardware_exposure: number;
-  hardware_gain: number;
-  backlight_comp: number;
+  // Pure View Bypass
+  pure_view_bypass: boolean;
 
-  // Zone B - Card 2: Sensor Color & White Balance
+  // Tab 1: Light
+  auto_exposure: boolean;
+  manual_exposure: boolean;
+  exposure_ev: number; // -11 to -2
+  smart_light_boost: number; // 0 to 100 (Dark Room Lift)
+  hw_brightness: number; // 0 to 255 (128 = neutral)
+  hw_contrast: number; // 0 to 255 (128 = neutral)
+  s_curve: number; // 0 to 100 (Highlight Roll-Off / Tone Curve)
+  hw_sharpness: number; // 0 to 255 (128 = neutral)
+  clarity: number; // 0 to 100
+  denoise: number; // 0 to 100
+
+  // Tab 2: Color
+  active_lut: StudioLookName;
+  lut_intensity: number; // 0 to 100
   auto_wb: boolean;
-  wb_kelvin: number;
-  hardware_brightness: number;
-  hardware_contrast: number;
-  hardware_saturation: number;
-  hardware_sharpness: number;
+  wb_kelvin: number; // 2800 to 6500
+  temp_shift: number; // -50 to +50 (Warmth)
+  tint: number; // -50 to +50 (Tint)
+  hw_saturation: number; // 0 to 255 (128 = neutral)
+  vibrance: number; // -50 to +50
+  lift: number; // -25 to +25
+  gamma: number; // 50 to 150 (100 = 1.00 neutral)
+  gain: number; // -25 to +25
 
-  // Zone B - Card 3: Optical ISP & Super-Resolution
-  upscale_1080p: boolean;
-  optical_clarity: number;
-  denoise_strength: number;
-  edge_detail_radius: number;
-
-  // Zone B - Card 4: Fluid PTZ & Geometry
-  digital_zoom: number;
-  pan_x: number;
-  tilt_y: number;
+  // Tab 3: Frame
+  zoom: number; // 100 to 300 (100 = 1.0x)
+  pan_x: number; // -100 to +100
+  tilt_y: number; // -100 to +100
   mirror_h: boolean;
   flip_v: boolean;
-  rotate_quadrant: number;
+  rotation_deg: 0 | 90 | 180 | 270;
+  ai_auto_frame: boolean;
+  bg_mode: BackgroundMode;
+  bokeh_strength: number; // 5 to 45
+  spotlight_dim: number; // 0 to 85
+  vignette: number; // 0 to 100
+  grain: number; // 0 to 100
 
-  // Zone D - Tab 1: Color & LUT
-  film_look: FilmLookName;
-  custom_cube_name: string;
-  lut_intensity: number;
-  temp_shift: number;
-  tint_shift: number;
-  shadows_lift: number;
-  midtones_gamma: number;
-  highlights_gain: number;
-  scurve_contrast: number;
-  vibrance: number;
-  optical_vignette: number;
-  film_grain: number;
-
-  // Zone D - Tab 2: AI Studio
-  ai_mode: AIStudioMode;
-  spotlight_dim_pct: number;
-  bokeh_blur_radius: number;
-  edge_feather: number;
-  backdrop_color_hex: string;
-  auto_framing: boolean;
-  subject_target_zoom: number;
-  gimbal_damping: number;
-  skin_smoothing: number;
-
-  // Zone D - Tab 3: Overlays
-  show_histogram: boolean;
-  show_vu_meter: boolean;
-  guide_thirds: boolean;
-  guide_golden: boolean;
-  guide_crosshair_safe: boolean;
-  guide_anamorphic: boolean;
-  guide_vertical_reel: boolean;
-  show_lower_third: boolean;
-  lower_third_name: string;
-  lower_third_role: string;
-  lower_third_accent: string;
-  show_watermark: boolean;
-  watermark_position: "Top-Right" | "Top-Left" | "Bottom-Right" | "Bottom-Left";
-  watermark_opacity: number;
-  burn_in_timecode: boolean;
+  // Tab 4: Studio
+  active_preset_name: string;
+  show_grid: boolean;
+  show_cinema_bars: boolean;
+  show_corner_hud: boolean;
+  upscale_1080p: boolean;
+  virtual_cam_active: boolean;
+  timer_sec: 0 | 3 | 5 | 10;
+  screen_flash: boolean;
+  hw_gain: number;
+  powerline_hz: 'Off' | '50 Hz' | '60 Hz';
 }
 
+/**
+ * 100% Pure Sensor Passthrough Default State:
+ * Guarantees crystal-clear 30.0 FPS natural video on launch with zero dark exposure or color blotches.
+ */
 export const DEFAULT_STUDIO_PARAMS: StudioParams = {
-  manual_exposure_lock: true,
-  anti_flicker_50hz: true,
-  hardware_exposure: -5,
-  hardware_gain: 110,
-  backlight_comp: 0,
+  pure_view_bypass: false,
 
+  // Tab 1: Light (100% Pure Sensor Passthrough)
+  auto_exposure: true,
+  manual_exposure: false,
+  exposure_ev: -5,
+  smart_light_boost: 0,
+  hw_brightness: 128,
+  hw_contrast: 128,
+  s_curve: 0,
+  hw_sharpness: 128,
+  clarity: 0,
+  denoise: 0,
+
+  // Tab 2: Color (100% Neutral Natural Color)
+  active_lut: 'Natural (Off)',
+  lut_intensity: 75,
   auto_wb: true,
   wb_kelvin: 5000,
-  hardware_brightness: 128,
-  hardware_contrast: 135,
-  hardware_saturation: 132,
-  hardware_sharpness: 140,
+  temp_shift: 0,
+  tint: 0,
+  hw_saturation: 128,
+  vibrance: 0,
+  lift: 0,
+  gamma: 100,
+  gain: 0,
 
-  upscale_1080p: false,
-  optical_clarity: 0.8,
-  denoise_strength: 0.15,
-  edge_detail_radius: 1.0,
-
-  digital_zoom: 1.0,
-  pan_x: 0.0,
-  tilt_y: 0.0,
+  // Tab 3: Frame (1.0x Full Sensor, Background Off)
+  zoom: 100,
+  pan_x: 0,
+  tilt_y: 0,
   mirror_h: true,
   flip_v: false,
-  rotate_quadrant: 0,
+  rotation_deg: 0,
+  ai_auto_frame: false,
+  bg_mode: 'Off (Natural Background)',
+  bokeh_strength: 21,
+  spotlight_dim: 35,
+  vignette: 0,
+  grain: 0,
 
-  film_look: "Kodak Portra 400",
-  custom_cube_name: "",
-  lut_intensity: 100,
-  temp_shift: 0,
-  tint_shift: 0,
-  shadows_lift: 0,
-  midtones_gamma: 1.0,
-  highlights_gain: 0,
-  scurve_contrast: 0.15,
-  vibrance: 15,
-  optical_vignette: 0.15,
-  film_grain: 0.0,
-
-  ai_mode: "Studio Spotlight (Dim Background)",
-  spotlight_dim_pct: 45,
-  bokeh_blur_radius: 25,
-  edge_feather: 7,
-  backdrop_color_hex: "#121216",
-  auto_framing: false,
-  subject_target_zoom: 1.35,
-  gimbal_damping: 0.08,
-  skin_smoothing: 0.0,
-
-  show_histogram: true,
-  show_vu_meter: true,
-  guide_thirds: false,
-  guide_golden: false,
-  guide_crosshair_safe: false,
-  guide_anamorphic: false,
-  guide_vertical_reel: false,
-  show_lower_third: false,
-  lower_third_name: "ALEXANDER VANCE",
-  lower_third_role: "DIRECTOR OF PHOTOGRAPHY // LIVE",
-  lower_third_accent: "Leica Amber (#E5A93C)",
-  show_watermark: false,
-  watermark_position: "Top-Right",
-  watermark_opacity: 80,
-  burn_in_timecode: false,
+  // Tab 4: Studio (Clean Unobstructed Viewport)
+  active_preset_name: 'Default (Pure Natural)',
+  show_grid: false,
+  show_cinema_bars: false,
+  show_corner_hud: false,
+  upscale_1080p: false,
+  virtual_cam_active: false,
+  timer_sec: 0,
+  screen_flash: false,
+  hw_gain: 64,
+  powerline_hz: '60 Hz',
 };
 
-export const FACTORY_PRESETS: Record<string, StudioParams> = {
-  "1. C270 30FPS Low-Light Fix": {
+export const FACTORY_PRESETS: Record<string, Partial<StudioParams>> = {
+  'Default (Pure Natural)': {
     ...DEFAULT_STUDIO_PARAMS,
-    manual_exposure_lock: true,
-    anti_flicker_50hz: true,
-    hardware_exposure: -5,
-    hardware_gain: 115,
-    auto_wb: false,
-    wb_kelvin: 4800,
-    denoise_strength: 0.3,
-    optical_clarity: 0.9,
-    film_look: "Rec.709 Neutral",
-    lut_intensity: 100,
-    shadows_lift: 4,
-    midtones_gamma: 1.08,
-    highlights_gain: -4,
-    scurve_contrast: 0.18,
-    vibrance: 14,
-    ai_mode: "Studio Spotlight (Dim Background)",
-    spotlight_dim_pct: 40,
+    active_preset_name: 'Default (Pure Natural)',
   },
-  "2. Warm Aesthetic Portrait": {
+  'Bright Meeting HD': {
     ...DEFAULT_STUDIO_PARAMS,
-    manual_exposure_lock: true,
-    hardware_exposure: -5,
-    hardware_gain: 105,
-    auto_wb: false,
-    wb_kelvin: 5300,
-    optical_clarity: 0.65,
-    denoise_strength: 0.2,
-    film_look: "Kodak Portra 400",
-    lut_intensity: 92,
-    temp_shift: 12,
-    tint_shift: 4,
-    shadows_lift: 3,
-    midtones_gamma: 1.04,
-    highlights_gain: -6,
-    scurve_contrast: 0.2,
-    vibrance: 18,
-    optical_vignette: 0.22,
-    film_grain: 0.08,
-    ai_mode: "Optical Bokeh Blur (DSLR Portrait)",
-    bokeh_blur_radius: 31,
-    skin_smoothing: 0.3,
+    active_preset_name: 'Bright Meeting HD',
+    smart_light_boost: 32,
+    s_curve: 18,
+    clarity: 15,
+    active_lut: 'Clean Daylight',
+    lut_intensity: 65,
+    temp_shift: 4,
   },
-  "3. Crisp 1080p Broadcast": {
+  'Warm Creator Look': {
     ...DEFAULT_STUDIO_PARAMS,
-    manual_exposure_lock: true,
-    hardware_exposure: -5,
-    hardware_gain: 100,
-    upscale_1080p: true,
-    optical_clarity: 1.15,
-    denoise_strength: 0.15,
-    edge_detail_radius: 0.9,
-    film_look: "Teal & Orange",
+    active_preset_name: 'Warm Creator Look',
+    smart_light_boost: 22,
+    s_curve: 28,
+    clarity: 18,
+    active_lut: 'Warm Studio',
     lut_intensity: 75,
-    scurve_contrast: 0.22,
-    vibrance: 20,
-    optical_vignette: 0.12,
-    ai_mode: "Studio Spotlight (Dim Background)",
-    spotlight_dim_pct: 50,
-    show_lower_third: true,
+    temp_shift: 10,
+    vibrance: 12,
+    bg_mode: 'Subtle Studio Spotlight',
+    spotlight_dim: 30,
   },
-  "4. Leica Monochrome Studio": {
+  'Monochrome Film': {
     ...DEFAULT_STUDIO_PARAMS,
-    manual_exposure_lock: true,
-    hardware_exposure: -6,
-    hardware_gain: 95,
-    optical_clarity: 1.25,
-    denoise_strength: 0.1,
-    film_look: "Leica Monochrome",
+    active_preset_name: 'Monochrome Film',
+    smart_light_boost: 18,
+    s_curve: 35,
+    clarity: 24,
+    active_lut: 'Classic B&W',
     lut_intensity: 100,
-    shadows_lift: -6,
-    midtones_gamma: 0.96,
-    highlights_gain: 8,
-    scurve_contrast: 0.34,
-    vibrance: 0,
-    optical_vignette: 0.32,
-    film_grain: 0.22,
-    ai_mode: "Studio Spotlight (Dim Background)",
-    spotlight_dim_pct: 65,
+    vignette: 18,
   },
 };
 
-export function clamp(val: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, val));
+export function clampByte(val: number): number {
+  if (val <= 0) return 0;
+  if (val >= 255) return 255;
+  return Math.round(val);
 }
 
-export function getFpsBadgeColor(fps: number): string {
-  if (fps >= 27.5) return "#10B981"; // Studio Emerald
-  if (fps >= 18.0) return "#F59E0B"; // Warning Amber
-  return "#E11D48"; // Cinema Crimson Red
+/**
+ * Fast-path check: returns true if all color & light controls are at their neutral passthrough values.
+ */
+export function isColorAndLightNeutral(params: StudioParams): boolean {
+  if (params.pure_view_bypass) return true;
+  const lutOff =
+    params.active_lut === 'Natural (Off)' || params.lut_intensity <= 0;
+  return (
+    lutOff &&
+    params.smart_light_boost === 0 &&
+    params.hw_brightness === 128 &&
+    params.hw_contrast === 128 &&
+    params.hw_saturation === 128 &&
+    params.s_curve === 0 &&
+    params.temp_shift === 0 &&
+    params.tint === 0 &&
+    params.vibrance === 0 &&
+    params.lift === 0 &&
+    params.gamma === 100 &&
+    params.gain === 0
+  );
 }
 
-export function formatMasterTimecode(totalFrames: number, fps = 30): string {
-  const safeFps = Math.max(1, Math.round(fps));
-  const totalSec = Math.floor(totalFrames / safeFps);
-  const ff = totalFrames % safeFps;
-  const hh = Math.floor(totalSec / 3600);
-  const mm = Math.floor((totalSec % 3600) / 60);
-  const ss = totalSec % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(hh)}:${pad(mm)}:${pad(ss)}:${pad(ff)}`;
-}
+/**
+ * Generates 3x256 RGB 1D Lookup Tables:
+ * - Smart Light Boost shadow curve: x = x ** (1.0 / (1.0 + boost * 0.8))
+ * - Smooth midtone-weighted channel shifts (Math.sin(x * Math.PI)) so pure black (0)
+ *   and pure white (255) NEVER shift red or green.
+ */
+export function buildColorGradingLUTs(params: StudioParams): {
+  rLUT: Uint8Array;
+  gLUT: Uint8Array;
+  bLUT: Uint8Array;
+} {
+  const rLUT = new Uint8Array(256);
+  const gLUT = new Uint8Array(256);
+  const bLUT = new Uint8Array(256);
 
-export function stepGimbalEMA(
-  current: { zoom: number; panX: number; panY: number },
-  target: { zoom: number; panX: number; panY: number },
-  damping: number
-): { zoom: number; panX: number; panY: number } {
-  const d = clamp(damping, 0.01, 1.0);
-  return {
-    zoom: clamp(current.zoom + (target.zoom - current.zoom) * d, 1.0, 3.0),
-    panX: clamp(current.panX + (target.panX - current.panX) * d, -1.0, 1.0),
-    panY: clamp(current.panY + (target.panY - current.panY) * d, -1.0, 1.0),
-  };
-}
-
-export interface RGB1DLUT {
-  r: Uint8Array;
-  g: Uint8Array;
-  b: Uint8Array;
-}
-
-export function applyFilmLookPoint(
-  r: number,
-  g: number,
-  b: number,
-  filmLook: FilmLookName
-): [number, number, number] {
-  if (filmLook === "Kodak Portra 400") {
-    const rOut = clamp(
-      Math.pow(r, 0.94) * 0.94 + (6.0 / 255.0) * (1.0 - r) + 0.015 * Math.sin(r * Math.PI),
-      0.0,
-      0.96
-    );
-    const gOut = clamp(
-      Math.pow(g, 0.97) * 0.95 + (3.0 / 255.0) * (1.0 - g) + 0.008 * Math.sin(g * Math.PI),
-      0.0,
-      0.96
-    );
-    const bOut = clamp(Math.pow(b, 1.04) * 0.96 - (4.0 / 255.0) * (1.0 - b), 0.0, 0.95);
-    return [rOut, gOut, bOut];
+  if (isColorAndLightNeutral(params)) {
+    for (let i = 0; i < 256; i++) {
+      rLUT[i] = i;
+      gLUT[i] = i;
+      bLUT[i] = i;
+    }
+    return { rLUT, gLUT, bLUT };
   }
 
-  if (filmLook === "Leica Monochrome") {
-    const luma = 0.25 * r + 0.65 * g + 0.1 * b;
-    const sig = 1.0 / (1.0 + Math.exp(-7.2 * (luma - 0.48)));
-    const sigMin = 1.0 / (1.0 + Math.exp(-7.2 * (0.0 - 0.48)));
-    const sigMax = 1.0 / (1.0 + Math.exp(-7.2 * (1.0 - 0.48)));
-    const sigNorm = (sig - sigMin) / (sigMax - sigMin);
-    const floor = 8.0 / 255.0;
-    const mono = clamp(floor + (1.0 - floor) * sigNorm, 0.0, 1.0);
-    return [mono, mono, mono];
-  }
+  const boostNorm = Math.max(0, Math.min(1, params.smart_light_boost / 100));
+  const boostPower = 1.0 / (1.0 + boostNorm * 0.8);
 
-  if (filmLook === "Teal & Orange") {
-    const shadowWeight = clamp(1.0 - r * 1.8, 0.0, 1.0);
-    const highWeight = clamp((r - 0.35) * 1.5, 0.0, 1.0);
-    const rOut = clamp(r + (-10.0 / 255.0) * shadowWeight + (12.0 / 255.0) * highWeight, 0.0, 1.0);
-    const gOut = clamp(g + (6.0 / 255.0) * shadowWeight + (4.0 / 255.0) * highWeight, 0.0, 1.0);
-    const bOut = clamp(b + (14.0 / 255.0) * shadowWeight + (-10.0 / 255.0) * highWeight, 0.0, 1.0);
-    return [rOut, gOut, bOut];
-  }
-
-  if (filmLook === "Matte Obsidian") {
-    const rOut = clamp(0.06 + 0.88 * Math.pow(r, 1.16), 0.0, 0.95);
-    const gOut = clamp(0.06 + 0.87 * Math.pow(g, 1.18), 0.0, 0.94);
-    const bOut = clamp(0.068 + 0.89 * Math.pow(b, 1.14), 0.0, 0.96);
-    return [rOut, gOut, bOut];
-  }
-
-  if (filmLook === "Warm Tungsten") {
-    const rOut = clamp(Math.pow(r, 0.92) + (14.0 / 255.0) * (1.0 - 0.5 * r), 0.0, 0.98);
-    const gOut = clamp(Math.pow(g, 0.97) + (5.0 / 255.0) * (1.0 - 0.5 * g), 0.0, 0.98);
-    const bOut = clamp(Math.pow(b, 1.08) - (16.0 / 255.0) * (1.0 - 0.3 * b), 0.0, 0.96);
-    return [rOut, gOut, bOut];
-  }
-
-  return [r, g, b];
-}
-
-export function build256LUT(
-  params: StudioParams,
-  custom1DLut?: { r: Float32Array; g: Float32Array; b: Float32Array } | null
-): RGB1DLUT {
-  const rTable = new Uint8Array(256);
-  const gTable = new Uint8Array(256);
-  const bTable = new Uint8Array(256);
-
-  const lift = params.shadows_lift;
-  const gamma = Math.max(0.2, params.midtones_gamma);
-  const gain = params.highlights_gain;
-  const contrast = params.scurve_contrast;
-  const temp = params.temp_shift;
-  const tint = params.tint_shift;
-  const lutMix = clamp(params.lut_intensity / 100.0, 0.0, 1.0);
-  const kelvinShift = params.auto_wb ? 0.0 : (params.wb_kelvin - 5000.0) / 65.0;
-
-  const rOffset = (temp * 0.4 + kelvinShift * 0.35) / 255.0;
-  const bOffset = (-temp * 0.4 - kelvinShift * 0.35) / 255.0;
-  const gOffset = (-tint * 0.35) / 255.0;
-
-  const k = 4.0 + contrast * 8.0;
-  const sig0 = 1.0 / (1.0 + Math.exp(-k * -0.5));
-  const sig1 = 1.0 / (1.0 + Math.exp(-k * 0.5));
+  const brOffset = ((params.hw_brightness - 128) / 128) * 0.18;
+  const ctFactor = 1.0 + ((params.hw_contrast - 128) / 128) * 0.45;
+  const liftNorm = (params.lift / 100) * 0.35;
+  const gainNorm = (params.gain / 100) * 0.35;
+  const gammaVal = Math.max(0.3, Math.min(2.8, params.gamma / 100));
+  const invGamma = 1.0 / gammaVal;
+  const sStrength = Math.max(0, Math.min(1, params.s_curve / 100));
+  const lutAlpha = Math.max(0, Math.min(1, params.lut_intensity / 100));
 
   for (let i = 0; i < 256; i++) {
-    const x = i / 255.0;
-    let base = clamp(x * (1.0 + gain / 100.0 - lift / 100.0) + lift / 100.0, 0.0, 1.0);
-    base = Math.pow(base, 1.0 / gamma);
+    let x = i / 255.0;
 
-    if (contrast > 0.001) {
-      const sig = 1.0 / (1.0 + Math.exp(-k * (base - 0.5)));
-      const sigNorm = (sig - sig0) / (sig1 - sig0);
-      base = (1.0 - contrast) * base + contrast * sigNorm;
+    // 1. Smart Light Boost (Dark Room Shadow Lift)
+    if (boostNorm > 0.001) {
+      x = Math.pow(Math.max(x, 0), boostPower);
     }
 
-    const r = clamp(base + rOffset, 0.0, 1.0);
-    const g = clamp(base + gOffset, 0.0, 1.0);
-    const b = clamp(base + bOffset, 0.0, 1.0);
-
-    let rLook: number;
-    let gLook: number;
-    let bLook: number;
-
-    if (custom1DLut) {
-      const ir = clamp(Math.round(r * 255), 0, 255);
-      const ig = clamp(Math.round(g * 255), 0, 255);
-      const ib = clamp(Math.round(b * 255), 0, 255);
-      rLook = custom1DLut.r[ir];
-      gLook = custom1DLut.g[ig];
-      bLook = custom1DLut.b[ib];
-    } else {
-      [rLook, gLook, bLook] = applyFilmLookPoint(r, g, b, params.film_look);
+    // 2. Brightness & Contrast
+    if (Math.abs(brOffset) > 0.001 || Math.abs(ctFactor - 1.0) > 0.001) {
+      x = (x - 0.5) * ctFactor + 0.5 + brOffset;
+      x = Math.max(0, Math.min(1, x));
     }
 
-    const rf = clamp((1.0 - lutMix) * r + lutMix * rLook, 0.0, 1.0);
-    const gf = clamp((1.0 - lutMix) * g + lutMix * gLook, 0.0, 1.0);
-    const bf = clamp((1.0 - lutMix) * b + lutMix * bLook, 0.0, 1.0);
-
-    rTable[i] = Math.round(rf * 255);
-    gTable[i] = Math.round(gf * 255);
-    bTable[i] = Math.round(bf * 255);
-  }
-
-  return { r: rTable, g: gTable, b: bTable };
-}
-
-export function parseCubeLUTText(text: string): {
-  valid: boolean;
-  r: Float32Array;
-  g: Float32Array;
-  b: Float32Array;
-  message: string;
-} {
-  const rows: [number, number, number][] = [];
-  let size3d = 0;
-  let size1d = 0;
-
-  const lines = text.split(/\r?\n/);
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const upper = line.toUpperCase();
-    if (upper.startsWith("TITLE") || upper.startsWith("DOMAIN_")) continue;
-    if (upper.startsWith("LUT_3D_SIZE")) {
-      const parts = line.split(/\s+/);
-      if (parts.length >= 2) size3d = parseInt(parts[1], 10) || 0;
-      continue;
+    // 3. Lift / Gamma / Gain
+    if (
+      Math.abs(liftNorm) > 0.001 ||
+      Math.abs(gainNorm) > 0.001 ||
+      Math.abs(gammaVal - 1.0) > 0.005
+    ) {
+      const lifted = x * (1.0 + gainNorm - liftNorm) + liftNorm;
+      const clamped = Math.max(0.0001, Math.min(1.0, lifted));
+      x = Math.pow(clamped, invGamma);
     }
-    if (upper.startsWith("LUT_1D_SIZE")) {
-      const parts = line.split(/\s+/);
-      if (parts.length >= 2) size1d = parseInt(parts[1], 10) || 0;
-      continue;
+
+    // 4. Highlight Roll-Off (S-Curve)
+    if (sStrength > 0.001) {
+      const k = 1.0 + sStrength * 4.2;
+      const sig = 1.0 / (1.0 + Math.exp(-k * (x - 0.5)));
+      const sig0 = 1.0 / (1.0 + Math.exp(-k * -0.5));
+      const sig1 = 1.0 / (1.0 + Math.exp(-k * 0.5));
+      const sigNorm = (sig - sig0) / Math.max(sig1 - sig0, 1e-6);
+      x = (1.0 - sStrength) * x + sStrength * sigNorm;
     }
-    const parts = line.split(/\s+/);
-    if (parts.length === 3) {
-      const rv = parseFloat(parts[0]);
-      const gv = parseFloat(parts[1]);
-      const bv = parseFloat(parts[2]);
-      if (!Number.isNaN(rv) && !Number.isNaN(gv) && !Number.isNaN(bv)) {
-        rows.push([clamp(rv, 0, 1), clamp(gv, 0, 1), clamp(bv, 0, 1)]);
+
+    // 5. Luminance-weighted Warmth & Tint (Math.sin(x * Math.PI) guarantees 0 shift at black=0 and white=1)
+    const midWeight = Math.sin(Math.max(0, Math.min(1, x)) * Math.PI);
+    const tempNorm = (params.temp_shift / 100) * 0.14;
+    const tintNorm = (params.tint / 100) * 0.12;
+
+    let r = x + tempNorm * midWeight - tintNorm * 0.35 * midWeight;
+    let g = x + tintNorm * midWeight;
+    let b = x - tempNorm * midWeight - tintNorm * 0.35 * midWeight;
+
+    // 6. Studio Look Profile (Luminance-Weighted)
+    if (params.active_lut !== 'Natural (Off)' && lutAlpha > 0.001) {
+      const mw = Math.sin(Math.max(0, Math.min(1, x)) * Math.PI);
+      const shadowEnv = Math.sin(Math.pow(Math.max(0, Math.min(1, x)), 0.7) * Math.PI);
+      const highEnv = Math.sin(Math.pow(Math.max(0, Math.min(1, x)), 1.4) * Math.PI);
+
+      let lr = r;
+      let lg = g;
+      let lb = b;
+
+      switch (params.active_lut) {
+        case 'Warm Studio':
+          lr = Math.pow(Math.max(r, 0), 0.95) + 0.03 * mw;
+          lg = Math.pow(Math.max(g, 0), 0.98) + 0.01 * mw;
+          lb = Math.pow(Math.max(b, 0), 1.03) - 0.025 * mw;
+          break;
+        case 'Clean Daylight': {
+          const base = Math.pow(Math.max(x, 0), 0.94);
+          lr = base + (r - x) + 0.01 * highEnv;
+          lg = base + (g - x) + 0.012 * mw;
+          lb = base + (b - x) + 0.022 * mw;
+          break;
+        }
+        case 'Soft Portrait': {
+          const base = Math.pow(Math.max(x, 0), 0.92);
+          lr = base + (r - x) + 0.025 * mw;
+          lg = base + (g - x) + 0.008 * mw;
+          lb = base + (b - x) - 0.012 * mw;
+          break;
+        }
+        case 'Cinema Teal':
+          lr = r + 0.045 * highEnv - 0.015 * shadowEnv;
+          lg = g + 0.01 * mw;
+          lb = b + 0.038 * shadowEnv - 0.025 * highEnv;
+          break;
+        case 'Classic B&W': {
+          const bw = 1.0 / (1.0 + Math.exp(-4.8 * (x - 0.49)));
+          const bw0 = 1.0 / (1.0 + Math.exp(-4.8 * -0.49));
+          const bw1 = 1.0 / (1.0 + Math.exp(-4.8 * 0.51));
+          const bwNorm = (bw - bw0) / Math.max(bw1 - bw0, 1e-6);
+          lr = bwNorm;
+          lg = bwNorm;
+          lb = bwNorm;
+          break;
+        }
       }
+
+      r = (1.0 - lutAlpha) * r + lutAlpha * lr;
+      g = (1.0 - lutAlpha) * g + lutAlpha * lg;
+      b = (1.0 - lutAlpha) * b + lutAlpha * lb;
     }
+
+    rLUT[i] = clampByte(r * 255);
+    gLUT[i] = clampByte(g * 255);
+    bLUT[i] = clampByte(b * 255);
   }
 
-  const rOut = new Float32Array(256);
-  const gOut = new Float32Array(256);
-  const bOut = new Float32Array(256);
-
-  if (size3d > 1 && rows.length === size3d * size3d * size3d) {
-    // Extract diagonal neutral axis + color response onto 256 table
-    for (let i = 0; i < 256; i++) {
-      const pos = (i / 255) * (size3d - 1);
-      const idx = Math.min(size3d - 1, Math.round(pos));
-      const flatIdx = idx + idx * size3d + idx * size3d * size3d;
-      const [rv, gv, bv] = rows[flatIdx] ?? [i / 255, i / 255, i / 255];
-      rOut[i] = rv;
-      gOut[i] = gv;
-      bOut[i] = bv;
-    }
-    return {
-      valid: true,
-      r: rOut,
-      g: gOut,
-      b: bOut,
-      message: `Loaded 3D .CUBE (${size3d}³)`,
-    };
-  }
-
-  if (rows.length >= 2) {
-    const n = size1d > 1 && rows.length >= size1d ? size1d : rows.length;
-    for (let i = 0; i < 256; i++) {
-      const pos = (i / 255) * (n - 1);
-      const i0 = Math.floor(pos);
-      const i1 = Math.min(n - 1, i0 + 1);
-      const frac = pos - i0;
-      rOut[i] = rows[i0][0] * (1 - frac) + rows[i1][0] * frac;
-      gOut[i] = rows[i0][1] * (1 - frac) + rows[i1][1] * frac;
-      bOut[i] = rows[i0][2] * (1 - frac) + rows[i1][2] * frac;
-    }
-    return {
-      valid: true,
-      r: rOut,
-      g: gOut,
-      b: bOut,
-      message: `Loaded 1D .CUBE (${n} pts)`,
-    };
-  }
-
-  return {
-    valid: false,
-    r: rOut,
-    g: gOut,
-    b: bOut,
-    message: "Invalid .CUBE LUT file format",
-  };
+  return { rLUT, gLUT, bLUT };
 }
 
-export interface Histogram64 {
-  r: Float32Array;
-  g: Float32Array;
-  b: Float32Array;
-  luma: Float32Array;
+/**
+ * Computes the centered crop rectangle for digital PTZ zoom & pan/tilt.
+ */
+export function computePTZCropRect(
+  frameWidth: number,
+  frameHeight: number,
+  zoomPct: number,
+  panX: number,
+  tiltY: number
+): { x: number; y: number; width: number; height: number } {
+  const zoom = Math.max(1.0, Math.min(3.0, zoomPct / 100.0));
+  const cropW = Math.max(64, Math.min(frameWidth, Math.round(frameWidth / zoom)));
+  const cropH = Math.max(36, Math.min(frameHeight, Math.round(frameHeight / zoom)));
+
+  const maxOffsetX = (frameWidth - cropW) / 2.0;
+  const maxOffsetY = (frameHeight - cropH) / 2.0;
+
+  const cx = frameWidth / 2.0 + (panX / 100.0) * maxOffsetX;
+  const cy = frameHeight / 2.0 + (tiltY / 100.0) * maxOffsetY;
+
+  const x = Math.max(0, Math.min(frameWidth - cropW, Math.round(cx - cropW / 2.0)));
+  const y = Math.max(0, Math.min(frameHeight - cropH, Math.round(cy - cropH / 2.0)));
+
+  return { x, y, width: cropW, height: cropH };
 }
 
-export function computeHistogram64FromRGBA(
-  rgba: Uint8ClampedArray,
-  width: number,
-  height: number,
-  step = 4
-): Histogram64 {
-  const rBins = new Float32Array(64);
-  const gBins = new Float32Array(64);
-  const bBins = new Float32Array(64);
-  const yBins = new Float32Array(64);
+/**
+ * Computes real-time 64-bin RGB + Luminance histograms from an RGBA pixel buffer.
+ */
+export function computeRGBHistogram64(
+  rgbaData: Uint8ClampedArray,
+  sampleStep: number = 16
+): { r: number[]; g: number[]; b: number[]; luma: number[] } {
+  const r = new Array<number>(64).fill(0);
+  const g = new Array<number>(64).fill(0);
+  const b = new Array<number>(64).fill(0);
+  const luma = new Array<number>(64).fill(0);
 
-  const stride = Math.max(1, step);
-  for (let y = 0; y < height; y += stride) {
-    const rowOffset = y * width * 4;
-    for (let x = 0; x < width; x += stride) {
-      const idx = rowOffset + x * 4;
-      const rv = rgba[idx];
-      const gv = rgba[idx + 1];
-      const bv = rgba[idx + 2];
-      const yv = (77 * rv + 150 * gv + 29 * bv) >> 8;
+  const step = Math.max(1, sampleStep) * 4;
+  let count = 0;
 
-      rBins[rv >> 2] += 1;
-      gBins[gv >> 2] += 1;
-      bBins[bv >> 2] += 1;
-      yBins[yv >> 2] += 1;
+  for (let i = 0; i < rgbaData.length; i += step) {
+    const rv = rgbaData[i];
+    const gv = rgbaData[i + 1];
+    const bv = rgbaData[i + 2];
+    const lv = (rv * 77 + gv * 150 + bv * 29) >> 8;
+
+    r[rv >> 2]++;
+    g[gv >> 2]++;
+    b[bv >> 2]++;
+    luma[lv >> 2]++;
+    count++;
+  }
+
+  if (count > 0) {
+    const scale = 100 / (count * 0.12);
+    for (let j = 0; j < 64; j++) {
+      r[j] = Math.min(100, Math.round(r[j] * scale));
+      g[j] = Math.min(100, Math.round(g[j] * scale));
+      b[j] = Math.min(100, Math.round(b[j] * scale));
+      luma[j] = Math.min(100, Math.round(luma[j] * scale));
     }
   }
 
-  const normalize = (arr: Float32Array) => {
-    let maxVal = 0;
-    for (let i = 0; i < 64; i++) {
-      if (arr[i] > maxVal) maxVal = arr[i];
-    }
-    if (maxVal > 0) {
-      for (let i = 0; i < 64; i++) {
-        arr[i] = arr[i] / maxVal;
-      }
-    }
-    return arr;
-  };
-
-  return {
-    r: normalize(rBins),
-    g: normalize(gBins),
-    b: normalize(bBins),
-    luma: normalize(yBins),
-  };
+  return { r, g, b, luma };
 }

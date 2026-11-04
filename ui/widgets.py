@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Custom Precision Industrial Widgets (`ui/widgets.py`):
-- `PrecisionSlider`: Compound parameter label + numeric readout + `CustomGrooveSlider`
-  with bipolar/unipolar fill, double-click reset to default_value, and Shift-scroll protection.
-- `ToggleSwitch`: Custom painted animated hardware toggle switch.
-- `SegmentedBar`: Custom 2-button or 3-tab segmented selector.
-- `ShutterButton`: Custom QPainter 52x52px tactile still shutter release button.
-- `RecordButton`: Custom QPainter 52x52px cinema record button morphing circle -> square.
-- `PauseRecordButton`: Custom QPainter 36x36px pause/resume transport button.
-- `InspectorCard`: Styled #15151B studio section container.
+Minimalist Spacious Studio Widgets (`ui/widgets.py`):
+- Escapes `&` as `&&` in Qt labels/buttons so Qt never turns `&` into an underscore mnemonic!
+- `PrecisionSlider`: Spacious 46px slider with double-click reset and Shift-scroll protection.
+- `ToggleSwitch`: Clean pill toggle switch.
+- `SegmentedBar`: 4-Tab sidebar header or 2-option selector.
+- `ShutterButton`: 50x50px clean white circle shutter button.
+- `RecordButton`: 50x50px clean crimson circle morphing into a rounded square when recording.
 """
 
 from typing import List, Optional
@@ -16,7 +14,6 @@ from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPen,
-    QBrush,
     QColor,
     QPainterPath,
     QMouseEvent,
@@ -36,14 +33,12 @@ from PyQt6.QtWidgets import (
 from ui.styles import draw_aperture_icon, draw_refresh_icon
 
 
-class CustomGrooveSlider(QWidget):
-    """
-    Custom QPainter horizontal slider supporting:
-    - Bipolar (center-0 outward fill) and Unipolar (left-to-handle fill) in #E5A93C
-    - Double-click anywhere on groove/handle to reset to `default_value`
-    - Scroll-wheel ignore unless Shift is held or widget explicitly has focus
-    """
+def escape_qt_mnemonic(text: str) -> str:
+    """Escapes single `&` into `&&` so Qt widgets render literal ampersands instead of underlines."""
+    return text.replace("&&", "&").replace("&", "&&")
 
+
+class CustomGrooveSlider(QWidget):
     valueChanged = pyqtSignal(float)
 
     def __init__(
@@ -65,7 +60,7 @@ class CustomGrooveSlider(QWidget):
 
         self._hovered = False
         self._dragging = False
-        self.setFixedHeight(20)
+        self.setFixedHeight(22)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -140,15 +135,12 @@ class CustomGrooveSlider(QWidget):
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        # Scroll-wheel protection: ignore wheel unless Shift is held so QScrollArea scrolls cleanly
-        modifiers = event.modifiers()
-        if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
+        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
             event.ignore()
             return
         delta = event.angleDelta().y()
         if delta != 0:
-            direction = 1.0 if delta > 0 else -1.0
-            self.set_value(self._value + direction * self.step, emit_signal=True)
+            self.set_value(self._value + (1.0 if delta > 0 else -1.0) * self.step, emit_signal=True)
         event.accept()
 
     def paintEvent(self, event) -> None:
@@ -161,10 +153,9 @@ class CustomGrooveSlider(QWidget):
         pad = 8.0
         groove_h = 4.0
 
-        # Track background groove (#262630)
         groove_rect = QRectF(pad, cy - groove_h * 0.5, w - pad * 2.0, groove_h)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#262630"))
+        painter.setBrush(QColor("#272730"))
         painter.drawRoundedRect(groove_rect, 2.0, 2.0)
 
         handle_x = self._value_to_pos(self._value)
@@ -172,41 +163,28 @@ class CustomGrooveSlider(QWidget):
 
         if self.bipolar and self.min_val < 0.0 < self.max_val:
             zero_x = self._value_to_pos(0.0)
-            # Center 0 tick mark
-            painter.setPen(QPen(QColor("#71717A"), 1.0))
+            painter.setPen(QPen(QColor("#52525B"), 1.0))
             painter.drawLine(QPointF(zero_x, cy - 5.0), QPointF(zero_x, cy + 5.0))
-
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(amber)
-            left_x = min(zero_x, handle_x)
-            right_x = max(zero_x, handle_x)
+            left_x, right_x = min(zero_x, handle_x), max(zero_x, handle_x)
             if right_x - left_x > 0.5:
-                fill_rect = QRectF(left_x, cy - groove_h * 0.5, right_x - left_x, groove_h)
-                painter.drawRoundedRect(fill_rect, 1.5, 1.5)
+                painter.drawRoundedRect(QRectF(left_x, cy - groove_h * 0.5, right_x - left_x, groove_h), 1.5, 1.5)
         else:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(amber)
             fill_w = max(0.0, handle_x - pad)
             if fill_w > 0.5:
-                fill_rect = QRectF(pad, cy - groove_h * 0.5, fill_w, groove_h)
-                painter.drawRoundedRect(fill_rect, 2.0, 2.0)
+                painter.drawRoundedRect(QRectF(pad, cy - groove_h * 0.5, fill_w, groove_h), 2.0, 2.0)
 
-        # Handle: 14x14px anti-aliased circle (#F4F4F6 idle, #E5A93C hover/drag, 2px #0E0E12 ring)
-        handle_r = 7.0
         fill_col = amber if (self._hovered or self._dragging) else QColor("#F4F4F6")
-        painter.setPen(QPen(QColor("#0E0E12"), 2.0))
+        painter.setPen(QPen(QColor("#111115"), 2.0))
         painter.setBrush(fill_col)
-        painter.drawEllipse(QPointF(handle_x, cy), handle_r, handle_r)
+        painter.drawEllipse(QPointF(handle_x, cy), 7.0, 7.0)
         painter.end()
 
 
 class PrecisionSlider(QWidget):
-    """
-    Compound widget (Fixed Height: 44px):
-    - Top Row: Parameter Title (#9CA3AF -> #F4F4F6 on hover) + Formatted Readout (Consolas 11px #E5A93C)
-    - Bottom Row: CustomGrooveSlider with double-click reset on both labels and groove.
-    """
-
     valueChanged = pyqtSignal(float)
 
     def __init__(
@@ -229,51 +207,38 @@ class PrecisionSlider(QWidget):
         self.bipolar = bipolar
         self.show_plus = show_plus or bipolar
 
-        self.setFixedHeight(44)
+        self.setFixedHeight(46)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(3)
 
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(4)
 
-        self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("color: #9CA3AF; font-size: 11px; font-weight: 400;")
+        self.title_label = QLabel(escape_qt_mnemonic(title))
+        self.title_label.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: 400;")
 
         self.value_label = QLabel()
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.value_label.setStyleSheet(
-            'color: #E5A93C; font-family: "Consolas", "JetBrains Mono", monospace; '
-            "font-size: 11px; font-weight: 600;"
+            'color: #E5A93C; font-family: "Consolas", "JetBrains Mono", monospace; font-size: 11px; font-weight: 600;'
         )
 
         top_row.addWidget(self.title_label)
         top_row.addStretch(1)
         top_row.addWidget(self.value_label)
 
-        self.slider = CustomGrooveSlider(
-            min_val=min_val,
-            max_val=max_val,
-            default_val=default_val,
-            step=step,
-            bipolar=bipolar,
-            parent=self,
-        )
+        self.slider = CustomGrooveSlider(min_val, max_val, default_val, step=step, bipolar=bipolar, parent=self)
         self.slider.valueChanged.connect(self._on_slider_changed)
 
         layout.addLayout(top_row)
         layout.addWidget(self.slider)
-
         self._update_value_text(default_val)
 
     def _format_val(self, val: float) -> str:
         if abs(val) < 1e-6:
             val = 0.0
-        if self.decimals == 0:
-            num_str = f"{int(round(val))}"
-        else:
-            num_str = f"{val:.{self.decimals}f}"
+        num_str = f"{int(round(val))}" if self.decimals == 0 else f"{val:.{self.decimals}f}"
         if self.show_plus and val > 1e-5:
             num_str = "+" + num_str
         return f"{num_str}{self.suffix}"
@@ -292,14 +257,6 @@ class PrecisionSlider(QWidget):
         self.slider.set_value(val, emit_signal=emit_signal)
         self._update_value_text(self.slider.value)
 
-    def enterEvent(self, event) -> None:
-        self.title_label.setStyleSheet("color: #F4F4F6; font-size: 11px; font-weight: 500;")
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        self.title_label.setStyleSheet("color: #9CA3AF; font-size: 11px; font-weight: 400;")
-        super().leaveEvent(event)
-
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.slider.reset_to_default()
@@ -309,20 +266,17 @@ class PrecisionSlider(QWidget):
 
 
 class ToggleSwitch(QAbstractButton):
-    """
-    Industrial Leica/Resolve custom toggle switch with text label and animated pill indicator.
-    """
-
     def __init__(self, label_text: str, checked: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setText(label_text)
+        self._display_text = label_text
+        self.setText(escape_qt_mnemonic(label_text))
         self.setCheckable(True)
         self.setChecked(checked)
-        self.setFixedHeight(24)
+        self.setFixedHeight(26)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def sizeHint(self) -> QSize:
-        return QSize(260, 24)
+        return QSize(280, 26)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -332,49 +286,44 @@ class ToggleSwitch(QAbstractButton):
         h = float(self.height())
         hovered = self.underMouse()
 
-        # Label on left
-        text_color = QColor("#F4F4F6") if (self.isChecked() or hovered) else QColor("#9CA3AF")
+        text_color = QColor("#F4F4F6") if (self.isChecked() or hovered) else QColor("#A1A1AA")
         painter.setPen(text_color)
         font = self.font()
-        font.setPixelSize(11)
+        font.setPixelSize(12)
         font.setWeight(500 if self.isChecked() else 400)
         painter.setFont(font)
-        text_rect = QRectF(0.0, 0.0, w - 42.0, h)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.text())
+        painter.drawText(
+            QRectF(0.0, 0.0, w - 44.0, h),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            self._display_text,
+        )
 
-        # Switch pill on right (34x18px)
-        sw_w = 34.0
-        sw_h = 18.0
+        sw_w, sw_h = 36.0, 20.0
         sw_x = w - sw_w - 2.0
         sw_y = (h - sw_h) * 0.5
         pill_rect = QRectF(sw_x, sw_y, sw_w, sw_h)
 
         if self.isChecked():
             painter.setPen(QPen(QColor("#E5A93C"), 1.0))
-            painter.setBrush(QColor(229, 169, 60, 64))
+            painter.setBrush(QColor(229, 169, 60, 68))
         else:
             painter.setPen(QPen(QColor("#2C2C38"), 1.0))
             painter.setBrush(QColor("#1C1C24"))
 
-        painter.drawRoundedRect(pill_rect, 9.0, 9.0)
+        painter.drawRoundedRect(pill_rect, 10.0, 10.0)
 
-        # Thumb knob (12x12px)
-        knob_r = 6.0
-        knob_x = (sw_x + sw_w - 9.0) if self.isChecked() else (sw_x + 9.0)
+        knob_x = (sw_x + sw_w - 10.0) if self.isChecked() else (sw_x + 10.0)
         knob_y = sw_y + sw_h * 0.5
-        knob_col = QColor("#E5A93C") if self.isChecked() else QColor("#71717A")
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(knob_col)
-        painter.drawEllipse(QPointF(knob_x, knob_y), knob_r, knob_r)
+        painter.setBrush(QColor("#E5A93C") if self.isChecked() else QColor("#71717A"))
+        painter.drawEllipse(QPointF(knob_x, knob_y), 6.5, 6.5)
         painter.end()
 
 
 class SegmentedBar(QWidget):
-    """Sleek segmented button bar for 2-mode ISP switch or 3-tab Right Dock navigation."""
-
     indexChanged = pyqtSignal(int)
 
-    def __init__(self, labels: List[str], height: int = 32, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, labels: List[str], height: int = 36, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.labels = labels
         self._current_index = 0
@@ -382,11 +331,11 @@ class SegmentedBar(QWidget):
 
         self.setFixedHeight(height)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(3)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
 
         for idx, text in enumerate(labels):
-            btn = QPushButton(text)
+            btn = QPushButton(escape_qt_mnemonic(text))
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -408,147 +357,101 @@ class SegmentedBar(QWidget):
             btn.setChecked(active)
             if active:
                 btn.setStyleSheet(
-                    "background-color: #262118; border: 1px solid #E5A93C; "
-                    "color: #E5A93C; font-size: 10px; font-weight: 700; letter-spacing: 0.8px;"
+                    "background-color: #262118; border: 1px solid #E5A93C; border-radius: 6px; "
+                    "color: #E5A93C; font-size: 11px; font-weight: 600; padding: 2px 6px;"
                 )
             else:
                 btn.setStyleSheet(
-                    "background-color: #15151B; border: 1px solid #22222B; "
-                    "color: #9CA3AF; font-size: 10px; font-weight: 600; letter-spacing: 0.8px;"
+                    "background-color: #18181E; border: 1px solid #24242C; border-radius: 6px; "
+                    "color: #A1A1AA; font-size: 11px; font-weight: 500; padding: 2px 6px;"
                 )
         if emit_signal:
             self.indexChanged.emit(index)
 
 
 class ShutterButton(QPushButton):
-    """
-    Primary Still Photo Shutter Release Button (52x52px):
-    Draws outer 2px ring #F4F4F6 (48x48px), inner solid #F4F4F6 circle (38x38px,
-    turns #E5A93C on hover, shrinks to 34x34px on mouse press).
-    """
+    """Primary Photo Shutter Button (50x50px clean white circle)."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(52, 52)
+        self.setFixedSize(50, 50)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Capture Still Frame (Shutter Release)")
+        self.setToolTip("Capture Photo")
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
         center = QPointF(self.width() * 0.5, self.height() * 0.5)
         hovered = self.underMouse()
         pressed = self.isDown()
 
-        # Outer 2px ring (48x48px -> radius 23)
         outer_col = QColor("#E5A93C") if hovered else QColor("#F4F4F6")
         painter.setPen(QPen(outer_col, 2.0))
-        painter.setBrush(QColor("#0A0A0D"))
-        painter.drawEllipse(center, 23.0, 23.0)
+        painter.setBrush(QColor("#0D0D10"))
+        painter.drawEllipse(center, 22.0, 22.0)
 
-        # Inner solid circle (38x38px -> radius 19, or 34x34px -> radius 17 on press)
-        inner_r = 17.0 if pressed else 19.0
-        inner_col = QColor("#E5A93C") if hovered else QColor("#F4F4F6")
+        inner_r = 16.0 if pressed else 18.0
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(inner_col)
+        painter.setBrush(QColor("#E5A93C") if hovered else QColor("#F4F4F6"))
         painter.drawEllipse(center, inner_r, inner_r)
         painter.end()
 
 
 class RecordButton(QPushButton):
-    """
-    Primary Cinema Record Button (52x52px):
-    Draws outer 2px ring #71717A (#E11D48 when recording), inner 34x34px circle #E11D48
-    when idle; morphs into a 20x20px rounded crimson square (4px radius) when recording is active.
-    """
+    """Primary Video Record Button (50x50px clean crimson circle, morphs to square when recording)."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(52, 52)
+        self.setFixedSize(50, 50)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Start / Stop Master MP4 Recording")
+        self.setToolTip("Start / Stop Video Recording")
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        cx = self.width() * 0.5
-        cy = self.height() * 0.5
+        cx, cy = self.width() * 0.5, self.height() * 0.5
         center = QPointF(cx, cy)
         recording = self.isChecked()
         hovered = self.underMouse()
 
         ring_col = QColor("#E11D48") if (recording or hovered) else QColor("#71717A")
         painter.setPen(QPen(ring_col, 2.0))
-        painter.setBrush(QColor("#0A0A0D"))
-        painter.drawEllipse(center, 23.0, 23.0)
+        painter.setBrush(QColor("#0D0D10"))
+        painter.drawEllipse(center, 22.0, 22.0)
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#E11D48"))
-
         if recording:
-            sq_rect = QRectF(cx - 10.0, cy - 10.0, 20.0, 20.0)
-            painter.drawRoundedRect(sq_rect, 4.0, 4.0)
+            painter.drawRoundedRect(QRectF(cx - 9.0, cy - 9.0, 18.0, 18.0), 4.0, 4.0)
         else:
-            r = 15.5 if self.isDown() else 17.0
-            painter.drawEllipse(center, r, r)
+            painter.drawEllipse(center, 15.0 if self.isDown() else 16.5, 15.0 if self.isDown() else 16.5)
         painter.end()
 
 
 class PauseRecordButton(QPushButton):
-    """
-    Custom QPainter 36x36px circular button drawing two crisp vertical pause bars (||)
-    or a play triangle (>) when recording is paused.
-    """
-
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(36, 36)
+        self.setFixedSize(34, 34)
         self.setCheckable(True)
         self.setEnabled(False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Pause / Resume Active Recording")
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        cx = self.width() * 0.5
-        cy = self.height() * 0.5
-        enabled = self.isEnabled()
-        paused = self.isChecked()
-
-        border_col = QColor("#E5A93C") if paused else (QColor("#3E3E4E") if enabled else QColor("#22222B"))
-        bg_col = QColor("#1C1C24") if enabled else QColor("#121217")
-        fg_col = QColor("#E5A93C") if paused else (QColor("#F4F4F6") if enabled else QColor("#52525B"))
-
-        painter.setPen(QPen(border_col, 1.5))
-        painter.setBrush(bg_col)
-        painter.drawEllipse(QPointF(cx, cy), 16.5, 16.5)
-
+        cx, cy = self.width() * 0.5, self.height() * 0.5
+        painter.setPen(QPen(QColor("#3E3E4E"), 1.5))
+        painter.setBrush(QColor("#1C1C24"))
+        painter.drawEllipse(QPointF(cx, cy), 15.5, 15.5)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(fg_col)
-
-        if paused:
-            # Draw play triangle
-            path = QPainterPath()
-            path.moveTo(cx - 4.0, cy - 6.0)
-            path.lineTo(cx + 6.5, cy)
-            path.lineTo(cx - 4.0, cy + 6.0)
-            path.closeSubpath()
-            painter.drawPath(path)
-        else:
-            # Draw two vertical pause bars
-            painter.drawRoundedRect(QRectF(cx - 5.0, cy - 6.0, 3.2, 12.0), 1.0, 1.0)
-            painter.drawRoundedRect(QRectF(cx + 1.8, cy - 6.0, 3.2, 12.0), 1.0, 1.0)
+        painter.setBrush(QColor("#F4F4F6"))
+        painter.drawRoundedRect(QRectF(cx - 4.5, cy - 5.5, 3.0, 11.0), 1.0, 1.0)
+        painter.drawRoundedRect(QRectF(cx + 1.5, cy - 5.5, 3.0, 11.0), 1.0, 1.0)
         painter.end()
 
 
 class ApertureLogoWidget(QWidget):
-    """20x20px custom-painted Leica Aperture blade icon for Top Telemetry Bar."""
-
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setFixedSize(22, 22)
@@ -564,13 +467,11 @@ class ApertureLogoWidget(QWidget):
 
 
 class RefreshIconButton(QPushButton):
-    """28x28px custom-painted circular refresh vector icon button."""
-
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(28, 28)
+        self.setFixedSize(32, 32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Rescan USB UVC Camera Devices")
+        self.setToolTip("Refresh Camera List")
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -581,26 +482,16 @@ class RefreshIconButton(QPushButton):
 
 
 class InspectorCard(QFrame):
-    """
-    Elevated Card / Section Group container (#15151B with 6px radius and 1px solid #22222B border)
-    featuring an uppercase #71717A section header.
-    """
-
     def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("InspectorCard")
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(12, 10, 12, 12)
-        self.main_layout.setSpacing(8)
+        self.main_layout.setContentsMargins(14, 12, 14, 14)
+        self.main_layout.setSpacing(12)
 
-        header = QLabel(title.upper())
+        header = QLabel(escape_qt_mnemonic(title.upper()))
         header.setObjectName("SectionHeaderLabel")
         self.main_layout.addWidget(header)
-
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet("background-color: #22222B; border: none;")
-        self.main_layout.addWidget(div)
 
     def add_widget(self, widget: QWidget) -> None:
         self.main_layout.addWidget(widget)

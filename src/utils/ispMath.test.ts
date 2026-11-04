@@ -1,96 +1,105 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import {
   DEFAULT_STUDIO_PARAMS,
   FACTORY_PRESETS,
-  build256LUT,
-  parseCubeLUTText,
-  stepGimbalEMA,
-  getFpsBadgeColor,
-  formatMasterTimecode,
-  computeHistogram64FromRGBA,
-} from "./ispMath";
+  buildColorGradingLUTs,
+  computePTZCropRect,
+  computeRGBHistogram64,
+  isColorAndLightNeutral,
+} from './ispMath.ts';
 
-test("FPS telemetry badge color follows exact thresholds (>=27.5 emerald, 18-27.4 amber, <18 crimson)", () => {
-  assert.equal(getFpsBadgeColor(30.0), "#10B981");
-  assert.equal(getFpsBadgeColor(27.5), "#10B981");
-  assert.equal(getFpsBadgeColor(24.0), "#F59E0B");
-  assert.equal(getFpsBadgeColor(18.0), "#F59E0B");
-  assert.equal(getFpsBadgeColor(15.0), "#E11D48");
-});
+describe('Optix Studio V2 ISP Mathematical Pipeline', () => {
+  it('defaults to 100% Pure Sensor Passthrough on startup (Auto Exposure, Natural Off, Bg Off)', () => {
+    assert.equal(DEFAULT_STUDIO_PARAMS.auto_exposure, true);
+    assert.equal(DEFAULT_STUDIO_PARAMS.manual_exposure, false);
+    assert.equal(DEFAULT_STUDIO_PARAMS.active_lut, 'Natural (Off)');
+    assert.equal(DEFAULT_STUDIO_PARAMS.bg_mode, 'Off (Natural Background)');
+    assert.equal(DEFAULT_STUDIO_PARAMS.upscale_1080p, false);
+    assert.equal(DEFAULT_STUDIO_PARAMS.smart_light_boost, 0);
+    assert.equal(isColorAndLightNeutral(DEFAULT_STUDIO_PARAMS), true);
 
-test("Master timecode formats frames into HH:MM:SS:FF accurately at 30 FPS", () => {
-  assert.equal(formatMasterTimecode(0, 30), "00:00:00:00");
-  assert.equal(formatMasterTimecode(45, 30), "00:00:01:15");
-  assert.equal(formatMasterTimecode(30 * 65 + 12, 30), "00:01:05:12");
-});
+    const { rLUT, gLUT, bLUT } = buildColorGradingLUTs(DEFAULT_STUDIO_PARAMS);
+    for (let i = 0; i < 256; i++) {
+      assert.equal(rLUT[i], i);
+      assert.equal(gLUT[i], i);
+      assert.equal(bLUT[i], i);
+    }
+  });
 
-test("256x3 LUT engine produces monotonic Rec.709 neutral curve and lifted Matte Obsidian floor", () => {
-  const neutralParams = {
-    ...DEFAULT_STUDIO_PARAMS,
-    film_look: "Rec.709 Neutral" as const,
-    scurve_contrast: 0,
-    shadows_lift: 0,
-    highlights_gain: 0,
-    midtones_gamma: 1.0,
-    temp_shift: 0,
-    tint_shift: 0,
-  };
-  const lutNeutral = build256LUT(neutralParams);
-  assert.equal(lutNeutral.r[0], 0);
-  assert.equal(lutNeutral.r[255], 255);
-  assert.ok(lutNeutral.r[128] >= 126 && lutNeutral.r[128] <= 130);
+  it('brightens dark shadows cleanly with Smart Light Boost without blowing out pure white (255)', () => {
+    const boosted = {
+      ...DEFAULT_STUDIO_PARAMS,
+      smart_light_boost: 60,
+    };
+    const { rLUT, gLUT, bLUT } = buildColorGradingLUTs(boosted);
+    assert.equal(rLUT[0], 0);
+    assert.equal(rLUT[255], 255);
+    // Dark shadow pixel (e.g. 40) is significantly lifted
+    assert.ok(rLUT[40] > 70, `Expected shadow pixel 40 to lift above 70, got ${rLUT[40]}`);
+    assert.equal(rLUT[40], gLUT[40]);
+    assert.equal(gLUT[40], bLUT[40]);
+  });
 
-  const obsidianParams = {
-    ...neutralParams,
-    film_look: "Matte Obsidian" as const,
-    lut_intensity: 100,
-  };
-  const lutObsidian = build256LUT(obsidianParams);
-  // Matte Obsidian lifts black floor (x=0 -> ~0.06 * 255 = ~15)
-  assert.ok(lutObsidian.r[0] >= 12);
-});
+  it('weights Warmth, Tint, and Studio Looks by luminance so pure black (0) and pure white (255) never tint red or green', () => {
+    const warmLook = {
+      ...DEFAULT_STUDIO_PARAMS,
+      active_lut: 'Warm Studio' as const,
+      lut_intensity: 100,
+      temp_shift: 35,
+      tint: -25,
+    };
+    const { rLUT, gLUT, bLUT } = buildColorGradingLUTs(warmLook);
+    // Pure black stays 0,0,0 — zero red/green blotches in shadows
+    assert.equal(rLUT[0], 0);
+    assert.equal(gLUT[0], 0);
+    assert.equal(bLUT[0], 0);
+    // Pure white stays 255,255,255
+    assert.equal(rLUT[255], 255);
+    assert.equal(gLUT[255], 255);
+    assert.equal(bLUT[255], 255);
+    // Midtones receive warm golden shift (Red > Blue)
+    assert.ok(rLUT[128] > bLUT[128]);
+  });
 
-test("Gimbal EMA smoothly interpolates zoom, panX, and panY within safe bounds", () => {
-  const next = stepGimbalEMA(
-    { zoom: 1.0, panX: 0.0, panY: 0.0 },
-    { zoom: 2.0, panX: 0.5, panY: -0.5 },
-    0.1
-  );
-  assert.ok(Math.abs(next.zoom - 1.1) < 1e-5);
-  assert.ok(Math.abs(next.panX - 0.05) < 1e-5);
-  assert.ok(Math.abs(next.panY - -0.05) < 1e-5);
-});
+  it('computes accurate PTZ crop bounds within 1280x720 sensor geometry', () => {
+    const full = computePTZCropRect(1280, 720, 100, 0, 0);
+    assert.deepEqual(full, { x: 0, y: 0, width: 1280, height: 720 });
 
-test(".CUBE LUT parser handles 1D LUT data and rejects malformed input", () => {
-  const sampleCube = `
-TITLE "Test Studio LUT"
-LUT_1D_SIZE 3
-0.0 0.0 0.0
-0.5 0.4 0.6
-1.0 1.0 1.0
-`;
-  const parsed = parseCubeLUTText(sampleCube);
-  assert.equal(parsed.valid, true);
-  assert.equal(parsed.r[0], 0);
-  assert.ok(Math.abs(parsed.g[127] - 0.4) < 0.05);
-  assert.equal(parsed.b[255], 1);
+    const zoom2x = computePTZCropRect(1280, 720, 200, 0, 0);
+    assert.equal(zoom2x.width, 640);
+    assert.equal(zoom2x.height, 360);
+    assert.equal(zoom2x.x, 320);
+    assert.equal(zoom2x.y, 180);
+  });
 
-  const bad = parseCubeLUTText("INVALID HEADER ONLY");
-  assert.equal(bad.valid, false);
-});
+  it('verifies all 4 curated studio presets exist and produce valid LUT tables', () => {
+    const expectedPresets = [
+      'Default (Pure Natural)',
+      'Bright Meeting HD',
+      'Warm Creator Look',
+      'Monochrome Film',
+    ];
+    for (const name of expectedPresets) {
+      assert.ok(FACTORY_PRESETS[name], `Missing preset: ${name}`);
+      const merged = { ...DEFAULT_STUDIO_PARAMS, ...FACTORY_PRESETS[name] };
+      const { rLUT, gLUT, bLUT } = buildColorGradingLUTs(merged);
+      assert.equal(rLUT.length, 256);
+      assert.equal(gLUT.length, 256);
+      assert.equal(bLUT.length, 256);
+    }
+  });
 
-test("64-bin RGB and Luma histogram normalizes peaks into [0, 1]", () => {
-  const rgba = new Uint8ClampedArray(16 * 16 * 4);
-  for (let i = 0; i < rgba.length; i += 4) {
-    rgba[i] = 200; // R
-    rgba[i + 1] = 100; // G
-    rgba[i + 2] = 50; // B
-    rgba[i + 3] = 255;
-  }
-  const hist = computeHistogram64FromRGBA(rgba, 16, 16, 1);
-  assert.equal(hist.r[200 >> 2], 1.0);
-  assert.equal(hist.g[100 >> 2], 1.0);
-  assert.equal(hist.b[50 >> 2], 1.0);
-  assert.equal( Object.keys(FACTORY_PRESETS).length, 4);
+  it('computes 64-bin RGB + Luminance histograms', () => {
+    const buffer = new Uint8ClampedArray(64 * 4);
+    for (let i = 0; i < buffer.length; i += 4) {
+      buffer[i] = 200;
+      buffer[i + 1] = 150;
+      buffer[i + 2] = 100;
+      buffer[i + 3] = 255;
+    }
+    const hist = computeRGBHistogram64(buffer, 1);
+    assert.equal(hist.r.length, 64);
+    assert.ok(hist.r[200 >> 2] > 0);
+  });
 });

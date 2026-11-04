@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Preset Management System & Factory Calibration Profiles for Logitech C270 HD Webcam.
-Stores and loads JSON configurations in ~/Pictures/C270_Optix_Studio/presets.json.
+Preset Management System & Pure Natural Startup Defaults (`core/preset_manager.py`).
+Every parameter defaults to 100% Pure Sensor Passthrough on startup so the Logitech C270
+streams bright, unfiltered 720p video at a locked 30.0 FPS with zero color corruption.
 """
 
 import copy
@@ -11,174 +12,95 @@ from typing import Dict, Any, List
 
 
 DEFAULT_STUDIO_PARAMS: Dict[str, Any] = {
-    # Zone B - Card 1: C270 30-FPS Hardware Engine
-    "manual_exposure_lock": True,
-    "anti_flicker_50hz": True,
-    "hardware_exposure": -5.0,
-    "hardware_gain": 110.0,
-    "backlight_comp": 0.0,
+    # Master Bypass
+    "pure_view_bypass": False,
 
-    # Zone B - Card 2: Sensor Color & White Balance
-    "auto_wb": True,
-    "wb_kelvin": 5000.0,
-    "hardware_brightness": 128.0,
-    "hardware_contrast": 135.0,
-    "hardware_saturation": 132.0,
-    "hardware_sharpness": 140.0,
+    # Tab 1: 1. Light (Quick Lighting + Optional Sensor Hardware)
+    "light_boost": 0.0,            # 0% to 100% (Default 0% — pure passthrough)
+    "brightness": 0.0,             # -100 to +100 (Default 0)
+    "contrast": 0.0,               # -100 to +100 (Default 0)
+    "sharpness": 0.0,              # 0% to 100% (Default 0%)
+    "denoise": 0.0,                # 0% to 100% (Default 0%)
+    "manual_exposure": False,      # Default OFF -> Auto-Exposure (0.75) keeps room bright
+    "hardware_exposure": -4.0,     # -10 to -2 EV (Only applied if manual_exposure is True)
+    "hardware_gain": 120.0,        # 0 to 255 ISO (Only applied if manual_exposure is True)
 
-    # Zone B - Card 3: Optical ISP & Super-Resolution
-    "upscale_1080p": False,
-    "optical_clarity": 0.80,
-    "denoise_strength": 0.15,
-    "edge_detail_radius": 1.00,
+    # Tab 2: 2. Color (Studio Looks + Color Balance)
+    "active_lut": "Natural (Off)", # Default "Natural (Off)" -> 0% LUT applied
+    "look_intensity": 75.0,        # 0% to 100%
+    "warmth": 0.0,                 # -100 Cool to +100 Warm (Default 0)
+    "tint": 0.0,                   # -100 Green to +100 Magenta (Default 0)
+    "saturation": 0.0,             # -100 to +100 (Default 0)
+    "vignette": 0.0,               # 0% to 100% (Default 0%)
 
-    # Zone B - Card 4: Fluid PTZ & Geometry
-    "digital_zoom": 1.00,
-    "pan_x": 0.00,
-    "tilt_y": 0.00,
-    "mirror_h": True,
-    "flip_v": False,
-    "rotate_quadrant": 0,
+    # Tab 3: 3. Frame (Camera Framing + Portrait Background)
+    "digital_zoom": 1.00,          # 1.00x to 2.50x (Default 1.00x)
+    "pan_x": 0.00,                 # -1.00 to +1.00
+    "tilt_y": 0.00,                # -1.00 to +1.00
+    "mirror_h": True,              # Default ON
+    "rotate_quadrant": 0,          # 0, 1, 2, 3
+    "show_grid": False,            # Default OFF
+    "show_cinema_bars": False,     # Default OFF
+    "bg_mode": "Off (Natural Background)",  # Default OFF
+    "bg_strength": 50.0,           # 10% to 100% (Default 50%)
+    "auto_frame_face": False,      # Default OFF
 
-    # Zone D - Tab 1: Color & LUT
-    "film_look": "Kodak Portra 400",
-    "custom_cube_path": "",
-    "lut_intensity": 100.0,
-    "temp_shift": 0.0,
-    "tint_shift": 0.0,
-    "shadows_lift": 0.0,
-    "midtones_gamma": 1.00,
-    "highlights_gain": 0.0,
-    "scurve_contrast": 0.15,
-    "vibrance": 15.0,
-    "optical_vignette": 0.15,
-    "film_grain": 0.00,
-
-    # Zone D - Tab 2: AI Studio
-    "ai_mode": "Studio Spotlight (Dim Background)",
-    "spotlight_dim_pct": 45.0,
-    "bokeh_blur_radius": 25.0,
-    "edge_feather": 7.0,
-    "backdrop_color_hex": "#121216",
-    "backdrop_image_path": "",
-    "auto_framing": False,
-    "subject_target_zoom": 1.35,
-    "gimbal_damping": 0.08,
-    "skin_smoothing": 0.00,
-
-    # Zone D - Tab 3: Overlays
-    "show_histogram": True,
-    "show_vu_meter": True,
-    "guide_thirds": False,
-    "guide_golden": False,
-    "guide_crosshair_safe": False,
-    "guide_anamorphic": False,
-    "guide_vertical_reel": False,
-    "show_lower_third": False,
-    "lower_third_name": "ALEXANDER VANCE",
-    "lower_third_role": "DIRECTOR OF PHOTOGRAPHY // LIVE",
-    "lower_third_accent": "Leica Amber (#E5A93C)",
-    "show_watermark": False,
-    "watermark_path": "",
-    "watermark_position": "Top-Right",
-    "watermark_opacity": 80.0,
-    "burn_in_timecode": False,
+    # Tab 4: 4. Studio (Saved Presets + Output Quality & Overlay)
+    "upscale_1080p": False,        # Default False -> 720p Fast (30 FPS)
+    "photo_format": "PNG (Lossless)",
+    "show_lower_third": False,     # Default OFF
+    "lower_third_name": "Alex Morgan",
+    "lower_third_title": "Product Design Lead",
+    "show_corner_hud": False,      # Default OFF -> Video stays 100% unobstructed
 }
 
 
 FACTORY_PRESETS: Dict[str, Dict[str, Any]] = {
-    "1. C270 30FPS Low-Light Fix": {
+    "Default (Pure Natural)": copy.deepcopy(DEFAULT_STUDIO_PARAMS),
+    "Bright Meeting HD": {
         **copy.deepcopy(DEFAULT_STUDIO_PARAMS),
-        "manual_exposure_lock": True,
-        "anti_flicker_50hz": True,
-        "hardware_exposure": -5.0,
-        "hardware_gain": 115.0,
-        "backlight_comp": 0.0,
-        "auto_wb": False,
-        "wb_kelvin": 4800.0,
-        "denoise_strength": 0.30,
-        "optical_clarity": 0.90,
-        "film_look": "Rec.709 Neutral",
-        "lut_intensity": 100.0,
-        "shadows_lift": 4.0,
-        "midtones_gamma": 1.08,
-        "highlights_gain": -4.0,
-        "scurve_contrast": 0.18,
-        "vibrance": 14.0,
-        "ai_mode": "Studio Spotlight (Dim Background)",
-        "spotlight_dim_pct": 40.0,
+        "light_boost": 28.0,
+        "brightness": 6.0,
+        "contrast": 8.0,
+        "sharpness": 25.0,
+        "denoise": 15.0,
+        "active_lut": "Clean Daylight",
+        "look_intensity": 65.0,
+        "warmth": 4.0,
+        "saturation": 8.0,
     },
-    "2. Warm Aesthetic Portrait": {
+    "Warm Creator Look": {
         **copy.deepcopy(DEFAULT_STUDIO_PARAMS),
-        "manual_exposure_lock": True,
-        "hardware_exposure": -5.0,
-        "hardware_gain": 105.0,
-        "auto_wb": False,
-        "wb_kelvin": 5300.0,
-        "optical_clarity": 0.65,
-        "denoise_strength": 0.20,
-        "film_look": "Kodak Portra 400",
-        "lut_intensity": 92.0,
-        "temp_shift": 12.0,
-        "tint_shift": 4.0,
-        "shadows_lift": 3.0,
-        "midtones_gamma": 1.04,
-        "highlights_gain": -6.0,
-        "scurve_contrast": 0.20,
-        "vibrance": 18.0,
-        "optical_vignette": 0.22,
-        "film_grain": 0.08,
-        "ai_mode": "Optical Bokeh Blur (DSLR Portrait)",
-        "bokeh_blur_radius": 31.0,
-        "skin_smoothing": 0.30,
+        "light_boost": 22.0,
+        "contrast": 12.0,
+        "sharpness": 20.0,
+        "active_lut": "Warm Studio",
+        "look_intensity": 75.0,
+        "warmth": 14.0,
+        "saturation": 10.0,
+        "vignette": 18.0,
+        "bg_mode": "Portrait Bokeh Blur",
+        "bg_strength": 45.0,
     },
-    "3. Crisp 1080p Broadcast": {
+    "Monochrome Film": {
         **copy.deepcopy(DEFAULT_STUDIO_PARAMS),
-        "manual_exposure_lock": True,
-        "hardware_exposure": -5.0,
-        "hardware_gain": 100.0,
-        "upscale_1080p": True,
-        "optical_clarity": 1.15,
-        "denoise_strength": 0.15,
-        "edge_detail_radius": 0.90,
-        "film_look": "Teal & Orange",
-        "lut_intensity": 75.0,
-        "scurve_contrast": 0.22,
-        "vibrance": 20.0,
-        "optical_vignette": 0.12,
-        "ai_mode": "Studio Spotlight (Dim Background)",
-        "spotlight_dim_pct": 50.0,
-        "show_lower_third": True,
-    },
-    "4. Leica Monochrome Studio": {
-        **copy.deepcopy(DEFAULT_STUDIO_PARAMS),
-        "manual_exposure_lock": True,
-        "hardware_exposure": -6.0,
-        "hardware_gain": 95.0,
-        "optical_clarity": 1.25,
-        "denoise_strength": 0.10,
-        "film_look": "Leica Monochrome",
-        "lut_intensity": 100.0,
-        "shadows_lift": -6.0,
-        "midtones_gamma": 0.96,
-        "highlights_gain": 8.0,
-        "scurve_contrast": 0.34,
-        "vibrance": 0.0,
-        "optical_vignette": 0.32,
-        "film_grain": 0.22,
-        "ai_mode": "Studio Spotlight (Dim Background)",
-        "spotlight_dim_pct": 65.0,
+        "light_boost": 15.0,
+        "contrast": 24.0,
+        "sharpness": 30.0,
+        "active_lut": "Classic B&W",
+        "look_intensity": 100.0,
+        "vignette": 25.0,
     },
 }
 
 
 class PresetManager:
-    """Manages factory and user-created studio presets stored in JSON."""
+    """Manages factory and user-saved JSON presets in ~/Pictures/C270_Optix_Studio/."""
 
     def __init__(self, storage_dir: Path) -> None:
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.preset_file = self.storage_dir / "c270_optix_presets.json"
+        self.preset_file = self.storage_dir / "optix_studio_v2_presets.json"
         self.user_presets: Dict[str, Dict[str, Any]] = {}
         self.load_from_disk()
 

@@ -1,1723 +1,1222 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect } from 'react';
 import {
-  StudioParams,
   DEFAULT_STUDIO_PARAMS,
   FACTORY_PRESETS,
-  FILM_LOOK_NAMES,
-  AIStudioMode,
-  getFpsBadgeColor,
-  formatMasterTimecode,
-  parseCubeLUTText,
-} from "./utils/ispMath";
-import {
-  ApertureLogoSvg,
-  RefreshIconSvg,
-  InspectorCard,
-  PrecisionSlider,
-  ToggleSwitch,
-  SegmentedBar,
-  ShutterReleaseButton,
-  CinemaRecordButton,
-  PauseRecordButton,
-} from "./components/StudioWidgets";
-import { ViewportCanvas } from "./components/ViewportCanvas";
-import {
-  PythonRepoModal,
-  StudioGalleryModal,
-  RepoFileEntry,
-  CapturedItem,
-} from "./components/PythonRepoModal";
+  STUDIO_LOOK_NAMES,
+  StudioLookName,
+  BackgroundMode,
+  StudioParams,
+} from './utils/ispMath';
+import { ViewportCanvas } from './components/ViewportCanvas';
+import { PythonRepoModal, RepoFileEntry } from './components/PythonRepoModal';
+
+type SidebarTab = 'light' | 'color' | 'frame' | 'studio';
+
+interface CapturedItem {
+  id: string;
+  timestamp: string;
+  dataUrl: string;
+  look: string;
+  resolution: string;
+}
 
 export default function App() {
-  // Core Studio Parameters State
-  const [params, setParams] = useState<StudioParams>(() => ({
-    ...DEFAULT_STUDIO_PARAMS,
-  }));
-
-  // Presets State
-  const [userPresets, setUserPresets] = useState<Record<string, StudioParams>>({});
-  const [activePresetName, setActivePresetName] = useState<string>(
-    "1. C270 30FPS Low-Light Fix"
-  );
-  const [savingPresetMode, setSavingPresetMode] = useState<boolean>(false);
-  const [newPresetTitle, setNewPresetTitle] = useState<string>("Custom C270 Look");
-
-  // Hardware & Top Bar State
-  const [deviceList, setDeviceList] = useState<string[]>([
-    "USB Video Device #0 (C270 HD)",
-    "Logitech HD Webcam C270 (UVC)",
-  ]);
+  const [params, setParams] = useState<StudioParams>(DEFAULT_STUDIO_PARAMS);
+  const [activeTab, setActiveTab] = useState<SidebarTab>('light');
   const [selectedDevice, setSelectedDevice] = useState<string>(
-    "USB Video Device #0 (C270 HD)"
+    '0: Logitech HD Webcam C270 (DirectShow)'
   );
-  const [driverBackend, setDriverBackend] = useState<"DirectShow" | "MSMF">(
-    "DirectShow"
-  );
-  const [showDriverSheetModal, setShowDriverSheetModal] = useState<boolean>(false);
+  const [useLiveWebcam, setUseLiveWebcam] = useState<boolean>(false);
 
-  // Right Dock Tab Index: 0 = COLOR & LUT, 1 = AI STUDIO, 2 = OVERLAYS
-  const [rightTabIndex, setRightTabIndex] = useState<number>(0);
-
-  // Telemetry & Transport State
-  const [liveFps, setLiveFps] = useState<number>(30.0);
+  // Capture & Recording state
   const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [isPausedRecording, setIsPausedRecording] = useState<boolean>(false);
-  const [recordedFrames, setRecordedFrames] = useState<number>(0);
-  const [tallyBlinkOn, setTallyBlinkOn] = useState<boolean>(true);
-  const [isVirtualCam, setIsVirtualCam] = useState<boolean>(false);
-
-  const [timerMode, setTimerMode] = useState<string>("Timer: Off");
-  const [flashEnabled, setFlashEnabled] = useState<boolean>(false);
-  const [snapshotFormat, setSnapshotFormat] = useState<string>("PNG Lossless");
-  const [countdownValue, setCountdownValue] = useState<number>(0);
-  const [flashTriggerCounter, setFlashTriggerCounter] = useState<number>(0);
-  const [captureRequestCounter, setCaptureRequestCounter] = useState<number>(0);
-
-  // Loaded Assets (.cube, backdrop image, watermark PNG)
-  const [customCubeLut, setCustomCubeLut] = useState<{
-    r: Float32Array;
-    g: Float32Array;
-    b: Float32Array;
-  } | null>(null);
-  const [backdropImageEl, setBackdropImageEl] = useState<HTMLImageElement | null>(
-    null
-  );
-  const [watermarkImageEl, setWatermarkImageEl] = useState<HTMLImageElement | null>(
-    null
-  );
-
-  // Modals & Repository Inspector State
+  const [recordingSec, setRecordingSec] = useState<number>(0);
+  const [countdownVal, setCountdownVal] = useState<number>(0);
+  const [flashActive, setFlashActive] = useState<boolean>(false);
+  const [capturedGallery, setCapturedGallery] = useState<CapturedItem[]>([]);
+  const [galleryModalOpen, setGalleryModalOpen] = useState<boolean>(false);
+  const [repoModalOpen, setRepoModalOpen] = useState<boolean>(false);
   const [repoFiles, setRepoFiles] = useState<RepoFileEntry[]>([]);
-  const [showRepoModal, setShowRepoModal] = useState<boolean>(false);
-  const [showGalleryModal, setShowGalleryModal] = useState<boolean>(false);
-  const [capturedItems, setCapturedItems] = useState<CapturedItem[]>([]);
-  const [statusBanner, setStatusBanner] = useState<string>(
-    "DIRECTSHOW UVC PIPELINE LOCKED @ 30.0 FPS"
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (repoModalOpen && repoFiles.length === 0) {
+      fetch('/api/repo-files')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && Array.isArray(data.files)) {
+            setRepoFiles(data.files);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [repoModalOpen, repoFiles.length]);
+
+  const [telemetry, setTelemetry] = useState({
+    fps: 30.0,
+    processMs: 1.1,
+    resolution: '720p HD',
+    webcamConnected: false,
+  });
+
+  const [captureGetter, setCaptureGetter] = useState<(() => string | null) | null>(
+    null
   );
 
-  // Hidden File Inputs
-  const cubeInputRef = useRef<HTMLInputElement | null>(null);
-  const backdropInputRef = useRef<HTMLInputElement | null>(null);
-  const watermarkInputRef = useRef<HTMLInputElement | null>(null);
-  const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Fetch generated Python Desktop Repository files from server
-  useEffect(() => {
-    fetch("/api/repo-files")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data && Array.isArray(data.files)) {
-          setRepoFiles(data.files);
-        }
-      })
-      .catch(() => {});
+  const handleCaptureGetterReady = useCallback((getter: () => string | null) => {
+    setCaptureGetter(() => getter);
   }, []);
 
-  // Recording Timecode & Blinking Tally Dot Timer
+  const showNotice = useCallback((msg: string) => {
+    setStatusNotice(msg);
+    setTimeout(() => {
+      setStatusNotice((prev) => (prev === msg ? null : prev));
+    }, 2600);
+  }, []);
+
+  // Recording timer
   useEffect(() => {
-    if (!isRecording || isPausedRecording) {
-      setTallyBlinkOn(false);
+    if (!isRecording) {
+      setRecordingSec(0);
       return;
     }
-    setTallyBlinkOn(true);
-    const frameInterval = setInterval(() => {
-      setRecordedFrames((prev) => prev + 1);
-    }, 1000 / 30);
-
-    const blinkInterval = setInterval(() => {
-      setTallyBlinkOn((prev) => !prev);
-    }, 500);
-
-    return () => {
-      clearInterval(frameInterval);
-      clearInterval(blinkInterval);
-    };
-  }, [isRecording, isPausedRecording]);
+    const timer = setInterval(() => {
+      setRecordingSec((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isRecording]);
 
   const updateParam = <K extends keyof StudioParams>(
     key: K,
     val: StudioParams[K]
   ) => {
-    setParams((prev) => ({ ...prev, [key]: val }));
+    setParams((prev) => ({
+      ...prev,
+      [key]: val,
+    }));
   };
 
-  const handleRefreshDevices = async () => {
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-        const list = await navigator.mediaDevices.enumerateDevices();
-        const videoDevs = list
-          .filter((d) => d.kind === "videoinput")
-          .map((d, i) => d.label || `USB Video Device #${i} (C270 HD)`);
-        if (videoDevs.length > 0) {
-          setDeviceList(videoDevs);
-          setSelectedDevice(videoDevs[0]);
-        }
-      }
-      setStatusBanner("UVC BUS RESCANNED // DIRECTSHOW 30FPS READY");
-    } catch {
-      setStatusBanner("UVC BUS RESCANNED // DEFAULT C270 PROFILE ACTIVE");
-    }
-  };
-
-  const handleSelectPreset = (name: string) => {
-    setActivePresetName(name);
-    const target = userPresets[name] || FACTORY_PRESETS[name];
-    if (target) {
-      setParams({ ...target });
-      setStatusBanner(`LOADED PRESET: ${name.toUpperCase()}`);
-    }
-  };
-
-  const handleSaveCustomPreset = () => {
-    const clean = newPresetTitle.trim();
-    if (!clean) return;
-    setUserPresets((prev) => ({ ...prev, [clean]: { ...params } }));
-    setActivePresetName(clean);
-    setSavingPresetMode(false);
-    setStatusBanner(`SAVED USER PRESET: ${clean.toUpperCase()}`);
-  };
-
-  const handleDeletePreset = () => {
-    if (userPresets[activePresetName]) {
-      const copy = { ...userPresets };
-      delete copy[activePresetName];
-      setUserPresets(copy);
-      const firstFactory = Object.keys(FACTORY_PRESETS)[0];
-      handleSelectPreset(firstFactory);
-      setStatusBanner(`DELETED PRESET: ${activePresetName.toUpperCase()}`);
-    } else {
-      setStatusBanner("FACTORY CALIBRATION PRESETS ARE PROTECTED");
-    }
+  const handleApplyPreset = (presetName: string) => {
+    const preset = FACTORY_PRESETS[presetName];
+    if (!preset) return;
+    setParams((prev) => ({
+      ...DEFAULT_STUDIO_PARAMS,
+      ...preset,
+      active_preset_name: presetName,
+      virtual_cam_active: prev.virtual_cam_active,
+    }));
+    showNotice(`Preset applied: ${presetName}`);
   };
 
   const handleResetAll = () => {
-    setParams({ ...DEFAULT_STUDIO_PARAMS });
-    setCustomCubeLut(null);
-    setStatusBanner("ALL STUDIO PARAMETERS RESET TO DEFAULT CALIBRATION");
+    setParams({
+      ...DEFAULT_STUDIO_PARAMS,
+      virtual_cam_active: false,
+    });
+    showNotice('Reset to 100% Pure Sensor Passthrough (30.0 FPS)');
   };
 
-  // Transport: Shutter Release, Countdown, Softbox Flash, Burst 3x
-  const executeImmediateCapture = () => {
-    if (flashEnabled) {
-      setFlashTriggerCounter((c) => c + 1);
-      setTimeout(() => {
-        setCaptureRequestCounter((c) => c + 1);
-      }, 240);
-    } else {
-      setCaptureRequestCounter((c) => c + 1);
+  const executeShutterCapture = useCallback(() => {
+    if (params.screen_flash) {
+      setFlashActive(true);
+      setTimeout(() => setFlashActive(false), 180);
     }
-  };
-
-  const handleShutterRelease = () => {
-    let sec = 0;
-    if (timerMode === "3s Timer") sec = 3;
-    else if (timerMode === "5s Timer") sec = 5;
-    else if (timerMode === "10s Timer") sec = 10;
-
-    if (sec === 0) {
-      executeImmediateCapture();
-      return;
-    }
-
-    setCountdownValue(sec);
-    let rem = sec;
-    const iv = setInterval(() => {
-      rem -= 1;
-      if (rem > 0) {
-        setCountdownValue(rem);
-      } else {
-        clearInterval(iv);
-        setCountdownValue(0);
-        executeImmediateCapture();
+    setTimeout(() => {
+      if (captureGetter) {
+        const dataUrl = captureGetter();
+        if (dataUrl) {
+          const item: CapturedItem = {
+            id: `IMG_${Date.now()}`,
+            timestamp: new Date().toLocaleTimeString(),
+            dataUrl,
+            look: params.pure_view_bypass ? 'Pure View' : params.active_lut,
+            resolution: params.upscale_1080p ? '1920x1080' : '1280x720',
+          };
+          setCapturedGallery((prev) => [item, ...prev]);
+          showNotice(`Saved still frame (${item.resolution})`);
+        }
       }
-    }, 1000);
-  };
+    }, 60);
+  }, [
+    captureGetter,
+    params.screen_flash,
+    params.pure_view_bypass,
+    params.active_lut,
+    params.upscale_1080p,
+    showNotice,
+  ]);
 
-  const handleBurst3x = () => {
-    setStatusBanner("BURST 3X CAPTURE TRIGGERED (180MS INTERVAL)");
-    setCaptureRequestCounter((c) => c + 1);
-    setTimeout(() => setCaptureRequestCounter((c) => c + 1), 180);
-    setTimeout(() => setCaptureRequestCounter((c) => c + 1), 360);
-  };
-
-  const handleFrameCaptured = (dataUrl: string, width: number, height: number) => {
-    const now = new Date();
-    const ts = now.toTimeString().slice(0, 8).replace(/:/g, "-");
-    const newItem: CapturedItem = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: ts,
-      format: snapshotFormat,
-      resolution: `${width}x${height}`,
-      dataUrl,
-    };
-    setCapturedItems((prev) => [newItem, ...prev]);
-    setStatusBanner(`SAVED STILL (${width}x${height} ${snapshotFormat})`);
-  };
-
-  const handleToggleRecord = () => {
-    if (!isRecording) {
-      setRecordedFrames(0);
-      setIsPausedRecording(false);
-      setIsRecording(true);
-      setStatusBanner("RECORDING MASTER MP4 + 44.1KHZ WAV AUDIO");
+  const handleTriggerPhoto = () => {
+    if (countdownVal > 0) return;
+    if (params.timer_sec === 0) {
+      executeShutterCapture();
     } else {
-      setIsRecording(false);
-      setIsPausedRecording(false);
-      setRecordedFrames(0);
-      setStatusBanner("MUXED MP4 + AAC 192K SAVED TO ~/Pictures/C270_Optix_Studio");
+      let rem = params.timer_sec;
+      setCountdownVal(rem);
+      const interval = setInterval(() => {
+        rem -= 1;
+        if (rem <= 0) {
+          clearInterval(interval);
+          setCountdownVal(0);
+          executeShutterCapture();
+        } else {
+          setCountdownVal(rem);
+        }
+      }, 1000);
     }
   };
 
-  const handleCubeFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const txt = String(reader.result || "");
-      const res = parseCubeLUTText(txt);
-      if (res.valid) {
-        setCustomCubeLut({ r: res.r, g: res.g, b: res.b });
-        updateParam("custom_cube_name", file.name);
-        setStatusBanner(res.message.toUpperCase());
-      } else {
-        setStatusBanner(res.message.toUpperCase());
-      }
-    };
-    reader.readAsText(file);
+  const formatRecordTimer = (sec: number) => {
+    const m = Math.floor(sec / 60)
+      .toString()
+      .padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    return `REC ${m}:${s}`;
   };
-
-  const handleBackdropFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      setBackdropImageEl(img);
-      updateParam("ai_mode", "Custom Studio Backdrop");
-      setStatusBanner(`LOADED STUDIO BACKDROP: ${file.name.toUpperCase()}`);
-    };
-    img.src = url;
-  };
-
-  const handleWatermarkFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      setWatermarkImageEl(img);
-      updateParam("show_watermark", true);
-      setStatusBanner(`LOADED PNG WATERMARK: ${file.name.toUpperCase()}`);
-    };
-    img.src = url;
-  };
-
-  const presetNames = [
-    ...Object.keys(FACTORY_PRESETS),
-    ...Object.keys(userPresets),
-  ];
-
-  const shortLutBadge = params.custom_cube_name
-    ? params.custom_cube_name.replace(/\.cube$/i, "").toUpperCase().slice(0, 12)
-    : params.film_look
-        .toUpperCase()
-        .replace("KODAK ", "")
-        .replace("LEICA ", "");
 
   return (
     <div
       className="w-screen h-screen flex flex-col overflow-hidden select-none"
-      style={{ backgroundColor: "#070709", color: "#F4F4F6" }}
+      style={{
+        backgroundColor: '#09090B',
+        color: '#F4F4F5',
+        fontFamily: 'Inter, "Segoe UI", system-ui, sans-serif',
+      }}
     >
-      {/* Hidden File Upload Inputs */}
-      <input
-        ref={cubeInputRef}
-        type="file"
-        accept=".cube,.CUBE"
-        className="hidden"
-        onChange={handleCubeFileUpload}
-      />
-      <input
-        ref={backdropInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleBackdropFileUpload}
-      />
-      <input
-        ref={watermarkInputRef}
-        type="file"
-        accept="image/png"
-        className="hidden"
-        onChange={handleWatermarkFileUpload}
-      />
-      <input
-        ref={colorPickerInputRef}
-        type="color"
-        value={params.backdrop_color_hex}
-        className="hidden"
-        onChange={(e) => {
-          setBackdropImageEl(null);
-          updateParam("backdrop_color_hex", e.target.value);
-          updateParam("ai_mode", "Custom Studio Backdrop");
-        }}
-      />
-
-      {/* =====================================================================
-          ZONE A — Top Telemetry & Hardware Bar (Fixed Height: 46px)
-      ===================================================================== */}
+      {/* 1. MINIMAL TOP HEADER BAR (52px height, #0D0D10) */}
       <header
-        className="h-[46px] px-[14px] flex items-center justify-between gap-[8px] shrink-0"
+        className="h-[52px] shrink-0 px-4 flex items-center justify-between"
         style={{
-          backgroundColor: "#0A0A0D",
-          borderBottom: "1px solid #22222B",
+          backgroundColor: '#0D0D10',
+          borderBottom: '1px solid #22222A',
         }}
       >
-        {/* Left Cluster */}
-        <div className="flex items-center gap-[8px] shrink-0">
-          <ApertureLogoSvg size={20} />
-          <span
-            className="text-[12px] font-bold tracking-[1.4px] whitespace-nowrap shrink-0"
-            style={{ color: "#F4F4F6" }}
-          >
-            LEICA // C270 OPTIX STUDIO
-          </span>
-
-          <div className="w-[1px] h-[22px] bg-[#262630] shrink-0" />
+        {/* Left Group: Lens Icon + Title + Camera Selector (240px) + Driver Settings (115px) */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 pr-1">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 22 22"
+              fill="none"
+              className="shrink-0"
+            >
+              <circle
+                cx="11"
+                cy="11"
+                r="8.5"
+                stroke="#E5A93C"
+                strokeWidth="1.6"
+              />
+              <circle
+                cx="11"
+                cy="11"
+                r="3.8"
+                stroke="#F4F4F5"
+                strokeWidth="1.2"
+              />
+            </svg>
+            <span className="text-[14px] font-bold tracking-[0.4px] text-[#F4F4F5] whitespace-nowrap">
+              Optix Studio
+            </span>
+          </div>
 
           <select
             aria-label="Camera Device Selector"
             value={selectedDevice}
-            onChange={(e) => setSelectedDevice(e.target.value)}
-            className="w-[156px] h-[28px] px-2 rounded-[4px] text-[11px] font-medium truncate cursor-pointer focus:outline-none"
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedDevice(val);
+              setUseLiveWebcam(val.includes('Browser WebRTC'));
+            }}
+            className="w-[240px] h-[32px] px-2.5 text-[12px] font-medium rounded-[6px] outline-none transition-colors cursor-pointer"
             style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
+              backgroundColor: '#1E1E26',
+              border: '1px solid #2E2E3A',
+              color: '#F4F4F5',
             }}
           >
-            {deviceList.map((dev) => (
-              <option key={dev} value={dev}>
-                {dev}
-              </option>
-            ))}
+            <option value="0: Logitech HD Webcam C270 (DirectShow)">
+              0: Logitech HD Webcam C270 (DirectShow)
+            </option>
+            <option value="1: Live Browser WebRTC Camera">
+              1: Live Browser WebRTC Camera
+            </option>
           </select>
 
           <button
             type="button"
-            aria-label="Refresh Camera Devices"
-            title="Rescan USB UVC Camera Devices"
-            onClick={handleRefreshDevices}
-            className="w-[28px] h-[28px] rounded-[4px] flex items-center justify-center cursor-pointer transition-colors hover:border-[#3E3E4E] shrink-0"
-            style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
-            }}
-          >
-            <RefreshIconSvg />
-          </button>
-
-          <select
-            aria-label="Driver Backend Selector"
-            value={driverBackend}
-            onChange={(e) =>
-              setDriverBackend(e.target.value as "DirectShow" | "MSMF")
+            onClick={() =>
+              showNotice(
+                'Opened Windows DirectShow UVC Hardware Driver Dialog (CAP_PROP_SETTINGS)'
+              )
             }
-            className="w-[96px] h-[28px] px-1.5 rounded-[4px] text-[11px] font-medium cursor-pointer focus:outline-none"
+            className="w-[115px] h-[32px] px-2.5 text-[12px] font-medium rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
             style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
+              backgroundColor: '#1E1E26',
+              border: '1px solid #2E2E3A',
+              color: '#F4F4F5',
             }}
           >
-            <option value="DirectShow">DirectShow</option>
-            <option value="MSMF">MSMF</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => setShowDriverSheetModal(true)}
-            className="w-[64px] h-[28px] rounded-[4px] text-[11px] font-semibold whitespace-nowrap shrink-0 cursor-pointer"
-            style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
-            }}
-          >
-            DRV CFG
+            Driver Settings
           </button>
         </div>
 
-        {/* Center Telemetry Cluster (Technical Readout Strip) */}
-        <div className="hidden lg:flex items-center gap-[6px] font-mono text-[10.5px] font-semibold tabular-nums shrink-0">
+        {/* Center Status Pill (160px wide): Live Resolution & FPS */}
+        <div
+          className="w-[160px] h-[28px] px-3 rounded-[14px] flex items-center justify-center gap-2 shrink-0"
+          style={{
+            backgroundColor: '#14141A',
+            border: '1px solid #262630',
+          }}
+        >
           <span
-            className="px-2 py-1 rounded-[4px] whitespace-nowrap"
-            style={{
-              backgroundColor: "#14141A",
-              border: "1px solid #262632",
-              color: "#E5A93C",
-            }}
-          >
-            {params.upscale_1080p ? "RES: 1920x1080 (HQ)" : "RES: 1280x720"}
-          </span>
-
-          <span
-            className="px-2 py-1 rounded-[4px] whitespace-nowrap"
-            style={{
-              backgroundColor: "#14141A",
-              border: "1px solid #262632",
-              color: getFpsBadgeColor(liveFps),
-            }}
-          >
-            FPS: {liveFps.toFixed(1)}
-          </span>
-
-          <span
-            className="px-2 py-1 rounded-[4px] whitespace-nowrap"
-            style={{
-              backgroundColor: "#14141A",
-              border: "1px solid #262632",
-              color: "#E5A93C",
-            }}
-          >
-            {params.manual_exposure_lock
-              ? `EXP: ${params.hardware_exposure} (LOCKED)`
-              : "EXP: AUTO"}
-          </span>
-
-          <span
-            className="px-2 py-1 rounded-[4px] whitespace-nowrap"
-            style={{
-              backgroundColor: "#14141A",
-              border: "1px solid #262632",
-              color: "#E5A93C",
-            }}
-          >
-            GAIN: {params.hardware_gain}
-          </span>
-
-          <span
-            className="px-2 py-1 rounded-[4px] whitespace-nowrap"
-            style={{
-              backgroundColor: "#14141A",
-              border: "1px solid #262632",
-              color: "#E5A93C",
-            }}
-          >
-            {params.auto_wb ? "WB: AUTO" : `WB: ${params.wb_kelvin}K`}
-          </span>
-
-          <span
-            className="px-2 py-1 rounded-[4px] whitespace-nowrap"
-            style={{
-              backgroundColor: "#14141A",
-              border: "1px solid #262632",
-              color: "#E5A93C",
-            }}
-          >
-            LUT: {shortLutBadge}
-          </span>
-        </div>
-
-        {/* Right Cluster */}
-        <div className="flex items-center gap-[8px] shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowRepoModal(true)}
-            className="h-[28px] px-2 rounded-[4px] font-mono text-[10px] font-semibold whitespace-nowrap shrink-0 cursor-pointer"
-            style={{
-              backgroundColor: "#262118",
-              border: "1px solid #E5A93C",
-              color: "#E5A93C",
-            }}
-          >
-            PY REPO ({repoFiles.length || 16})
-          </button>
-
-          <span
-            aria-hidden="true"
-            className="w-[10px] h-[10px] rounded-full shrink-0"
-            style={{
-              backgroundColor:
-                isRecording && tallyBlinkOn ? "#E11D48" : "#3F3F46",
-            }}
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{ backgroundColor: '#10B981' }}
           />
-
           <span
-            className="font-mono text-[14px] font-bold tabular-nums tracking-tight whitespace-nowrap shrink-0"
-            style={{ color: "#F4F4F6" }}
+            className="text-[11px] font-semibold whitespace-nowrap"
+            style={{
+              color: '#10B981',
+              fontFamily: '"JetBrains Mono", Consolas, monospace',
+            }}
           >
-            {formatMasterTimecode(recordedFrames, 30)}
+            {telemetry.resolution} &nbsp;|&nbsp; {telemetry.fps.toFixed(1)} FPS
           </span>
+        </div>
+
+        {/* Right Group: Pure View (Bypass) (140px) + Reset All (90px) + Gallery (90px) + Python Repo button */}
+        <div className="flex items-center gap-2">
+          {statusNotice && (
+            <span className="text-[11px] text-[#E5A93C] mr-1 hidden xl:inline whitespace-nowrap">
+              {statusNotice}
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              updateParam('pure_view_bypass', !params.pure_view_bypass)
+            }
+            className="w-[140px] h-[32px] px-2.5 text-[12px] font-semibold rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
+            style={{
+              backgroundColor: params.pure_view_bypass
+                ? 'rgba(229, 169, 60, 0.16)'
+                : '#1E1E26',
+              border: params.pure_view_bypass
+                ? '1px solid #E5A93C'
+                : '1px solid #2E2E3A',
+              color: params.pure_view_bypass ? '#E5A93C' : '#F4F4F5',
+            }}
+          >
+            Pure View (Bypass)
+          </button>
+
+          <button
+            type="button"
+            onClick={handleResetAll}
+            className="w-[90px] h-[32px] px-2.5 text-[12px] font-medium rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
+            style={{
+              backgroundColor: '#1E1E26',
+              border: '1px solid #2E2E3A',
+              color: '#F4F4F5',
+            }}
+          >
+            Reset All
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setGalleryModalOpen(true)}
+            className="w-[90px] h-[32px] px-2.5 text-[12px] font-medium rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
+            style={{
+              backgroundColor: '#1E1E26',
+              border: '1px solid #2E2E3A',
+              color: '#F4F4F5',
+            }}
+          >
+            Gallery {capturedGallery.length > 0 ? `(${capturedGallery.length})` : ''}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRepoModalOpen(true)}
+            title="Inspect Native Windows Python PyQt6 Source Code Repository"
+            className="h-[32px] px-2.5 text-[11px] font-semibold rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
+            style={{
+              backgroundColor: '#14141A',
+              border: '1px solid #2E2E3A',
+              color: '#E5A93C',
+            }}
+          >
+            Python Source
+          </button>
         </div>
       </header>
 
-      {/* =====================================================================
-          MIDDLE WORKSPACE (Zone B + Zone C + Zone D)
-      ===================================================================== */}
+      {/* MAIN 2-COLUMN WORKSPACE: Left/Center Hero Viewport (~76%) + Single Right Studio Sidebar (350px) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* ZONE B — Left Dock Inspector: Hardware UVC & Optical ISP (320px) */}
-        <aside
-          aria-label="Hardware UVC and Optical ISP Inspector"
-          className="w-[320px] h-full shrink-0 overflow-y-auto p-[12px] flex flex-col gap-[12px]"
-          style={{
-            backgroundColor: "#0E0E12",
-            borderRight: "1px solid #22222B",
-          }}
+        {/* 2. LEFT/CENTER HERO VIEWPORT + CLEAN BOTTOM CAPTURE BAR */}
+        <main
+          className="flex-1 flex flex-col min-w-0 overflow-hidden"
+          style={{ backgroundColor: '#09090B' }}
         >
-          {/* Card 1: C270 30-FPS HARDWARE ENGINE */}
-          <InspectorCard title="C270 30-FPS HARDWARE ENGINE">
-            <ToggleSwitch
-              label="30 FPS Low-Light Lock (Manual Exp)"
-              checked={params.manual_exposure_lock}
-              onChange={(v) => updateParam("manual_exposure_lock", v)}
-            />
-            <ToggleSwitch
-              label="50Hz Powerline Anti-Flicker"
-              checked={params.anti_flicker_50hz}
-              onChange={(v) => updateParam("anti_flicker_50hz", v)}
-            />
-            <PrecisionSlider
-              title="Hardware Exposure"
-              min={-11}
-              max={-2}
-              defaultValue={-5}
-              value={params.hardware_exposure}
-              step={1}
-              decimals={0}
-              suffix=" EV"
-              onChange={(v) => updateParam("hardware_exposure", v)}
-            />
-            <PrecisionSlider
-              title="Sensor Gain (ISO)"
-              min={0}
-              max={255}
-              defaultValue={110}
-              value={params.hardware_gain}
-              step={1}
-              decimals={0}
-              suffix=" ISO"
-              onChange={(v) => updateParam("hardware_gain", v)}
-            />
-            <PrecisionSlider
-              title="Backlight Comp"
-              min={0}
-              max={2}
-              defaultValue={0}
-              value={params.backlight_comp}
-              step={1}
-              decimals={0}
-              onChange={(v) => updateParam("backlight_comp", v)}
-            />
-          </InspectorCard>
-
-          {/* Card 2: SENSOR COLOR & WHITE BALANCE */}
-          <InspectorCard title="SENSOR COLOR & WHITE BALANCE">
-            <ToggleSwitch
-              label="Auto White Balance"
-              checked={params.auto_wb}
-              onChange={(v) => updateParam("auto_wb", v)}
-            />
-            <PrecisionSlider
-              title="Color Temp (Kelvin)"
-              min={2800}
-              max={7500}
-              defaultValue={5000}
-              value={params.wb_kelvin}
-              step={100}
-              decimals={0}
-              suffix="K"
-              onChange={(v) => updateParam("wb_kelvin", v)}
-            />
-            <PrecisionSlider
-              title="Hardware Brightness"
-              min={0}
-              max={255}
-              defaultValue={128}
-              value={params.hardware_brightness}
-              step={1}
-              decimals={0}
-              onChange={(v) => updateParam("hardware_brightness", v)}
-            />
-            <PrecisionSlider
-              title="Hardware Contrast"
-              min={0}
-              max={255}
-              defaultValue={135}
-              value={params.hardware_contrast}
-              step={1}
-              decimals={0}
-              onChange={(v) => updateParam("hardware_contrast", v)}
-            />
-            <PrecisionSlider
-              title="Hardware Saturation"
-              min={0}
-              max={255}
-              defaultValue={132}
-              value={params.hardware_saturation}
-              step={1}
-              decimals={0}
-              onChange={(v) => updateParam("hardware_saturation", v)}
-            />
-            <PrecisionSlider
-              title="Hardware Sharpness"
-              min={0}
-              max={255}
-              defaultValue={140}
-              value={params.hardware_sharpness}
-              step={1}
-              decimals={0}
-              onChange={(v) => updateParam("hardware_sharpness", v)}
-            />
-          </InspectorCard>
-
-          {/* Card 3: OPTICAL ISP & SUPER-RESOLUTION */}
-          <InspectorCard title="OPTICAL ISP & SUPER-RESOLUTION">
-            <SegmentedBar
-              options={["720p Native", "1080p Lanczos4 Master"]}
-              activeIndex={params.upscale_1080p ? 1 : 0}
-              onSelect={(idx) => updateParam("upscale_1080p", idx === 1)}
-              height={30}
-            />
-            <PrecisionSlider
-              title="Optical Clarity (Unsharp Mask)"
-              min={0.0}
-              max={3.0}
-              defaultValue={0.8}
-              value={params.optical_clarity}
-              step={0.05}
-              decimals={2}
-              onChange={(v) => updateParam("optical_clarity", v)}
-            />
-            <PrecisionSlider
-              title="Chroma/Luma Denoise"
-              min={0.0}
-              max={1.0}
-              defaultValue={0.15}
-              value={params.denoise_strength}
-              step={0.05}
-              decimals={2}
-              onChange={(v) => updateParam("denoise_strength", v)}
-            />
-            <PrecisionSlider
-              title="Edge Detail Preservation"
-              min={0.1}
-              max={2.0}
-              defaultValue={1.0}
-              value={params.edge_detail_radius}
-              step={0.05}
-              decimals={2}
-              onChange={(v) => updateParam("edge_detail_radius", v)}
-            />
-          </InspectorCard>
-
-          {/* Card 4: FLUID PTZ & GEOMETRY */}
-          <InspectorCard title="FLUID PTZ & GEOMETRY">
-            <PrecisionSlider
-              title="Digital Optical Zoom"
-              min={1.0}
-              max={3.0}
-              defaultValue={1.0}
-              value={params.digital_zoom}
-              step={0.02}
-              decimals={2}
-              suffix="x"
-              onChange={(v) => updateParam("digital_zoom", v)}
-            />
-            <PrecisionSlider
-              title="Pan X (Horizontal)"
-              min={-1.0}
-              max={1.0}
-              defaultValue={0.0}
-              value={params.pan_x}
-              step={0.02}
-              decimals={2}
-              bipolar
-              onChange={(v) => updateParam("pan_x", v)}
-            />
-            <PrecisionSlider
-              title="Tilt Y (Vertical)"
-              min={-1.0}
-              max={1.0}
-              defaultValue={0.0}
-              value={params.tilt_y}
-              step={0.02}
-              decimals={2}
-              bipolar
-              onChange={(v) => updateParam("tilt_y", v)}
-            />
-
-            <div className="grid grid-cols-4 gap-1.5 pt-1">
-              <button
-                type="button"
-                onClick={() => updateParam("mirror_h", !params.mirror_h)}
-                className="h-[30px] rounded-[4px] text-[10.5px] font-semibold whitespace-nowrap cursor-pointer"
-                style={{
-                  backgroundColor: params.mirror_h ? "#262118" : "#1C1C24",
-                  border: params.mirror_h
-                    ? "1px solid #E5A93C"
-                    : "1px solid #2C2C38",
-                  color: params.mirror_h ? "#E5A93C" : "#F4F4F6",
-                }}
-              >
-                Mirror H
-              </button>
-              <button
-                type="button"
-                onClick={() => updateParam("flip_v", !params.flip_v)}
-                className="h-[30px] rounded-[4px] text-[10.5px] font-semibold whitespace-nowrap cursor-pointer"
-                style={{
-                  backgroundColor: params.flip_v ? "#262118" : "#1C1C24",
-                  border: params.flip_v
-                    ? "1px solid #E5A93C"
-                    : "1px solid #2C2C38",
-                  color: params.flip_v ? "#E5A93C" : "#F4F4F6",
-                }}
-              >
-                Flip V
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  updateParam("rotate_quadrant", (params.rotate_quadrant + 1) % 4)
-                }
-                className="h-[30px] rounded-[4px] text-[10.5px] font-semibold whitespace-nowrap cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#F4F4F6",
-                }}
-              >
-                Rotate 90°
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateParam("digital_zoom", 1.0);
-                  updateParam("pan_x", 0.0);
-                  updateParam("tilt_y", 0.0);
-                  updateParam("rotate_quadrant", 0);
-                }}
-                className="h-[30px] rounded-[4px] text-[10.5px] font-semibold whitespace-nowrap cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#F4F4F6",
-                }}
-              >
-                Reset PTZ
-              </button>
-            </div>
-          </InspectorCard>
-        </aside>
-
-        {/* ZONE C — Center Cinema Viewport & Interactive HUD */}
-        <ViewportCanvas
-          params={params}
-          customCubeLut={customCubeLut}
-          backdropImageElement={backdropImageEl}
-          watermarkImageElement={watermarkImageEl}
-          isRecording={isRecording}
-          isVirtualCam={isVirtualCam}
-          countdownValue={countdownValue}
-          flashTriggerCounter={flashTriggerCounter}
-          captureRequestCounter={captureRequestCounter}
-          onFrameCaptured={handleFrameCaptured}
-          onFpsUpdated={setLiveFps}
-          onPtzDragged={(z, px, py) => {
-            updateParam("digital_zoom", z);
-            updateParam("pan_x", px);
-            updateParam("tilt_y", py);
-          }}
-          onPtzReset={() => {
-            updateParam("digital_zoom", 1.0);
-            updateParam("pan_x", 0.0);
-            updateParam("tilt_y", 0.0);
-          }}
-        />
-
-        {/* ZONE D — Right Dock Inspector: Color Grading, AI Studio & Broadcast Overlays (340px) */}
-        <aside
-          aria-label="Color Grading, AI Studio, and Broadcast Overlays Inspector"
-          className="w-[340px] h-full shrink-0 flex flex-col"
-          style={{
-            backgroundColor: "#0E0E12",
-            borderLeft: "1px solid #22222B",
-          }}
-        >
-          {/* Top 3-Tab Segmented Bar (Height: 36px) */}
-          <div
-            className="h-[36px] px-2 flex items-center shrink-0"
-            style={{
-              backgroundColor: "#0A0A0D",
-              borderBottom: "1px solid #22222B",
-            }}
-          >
-            <SegmentedBar
-              options={["COLOR & LUT", "AI STUDIO", "OVERLAYS"]}
-              activeIndex={rightTabIndex}
-              onSelect={setRightTabIndex}
-              height={28}
+          {/* Unobstructed 16:9 Video Canvas Area with 24px breathing margin */}
+          <div className="flex-1 min-h-0 relative">
+            <ViewportCanvas
+              params={params}
+              isRecording={isRecording}
+              recordingTimeSec={recordingSec}
+              countdownValue={countdownVal}
+              flashTrigger={flashActive}
+              useLiveWebcam={useLiveWebcam}
+              onCaptureDataUrlReady={handleCaptureGetterReady}
+              onTelemetryUpdate={setTelemetry}
             />
           </div>
 
-          <div className="flex-1 overflow-y-auto p-[12px] flex flex-col gap-[12px]">
-            {rightTabIndex === 0 && (
+          {/* Clean Bottom Capture Bar (68px height, centered below video, 5 controls with 16px spacing) */}
+          <div
+            className="h-[68px] shrink-0 px-6 flex items-center justify-center gap-[16px]"
+            style={{
+              backgroundColor: '#0D0D10',
+              borderTop: '1px solid #22222A',
+            }}
+          >
+            {/* 1. Timer Selector (105px x 34px) */}
+            <select
+              aria-label="Capture Timer Selector"
+              value={params.timer_sec}
+              onChange={(e) =>
+                updateParam(
+                  'timer_sec',
+                  Number(e.target.value) as 0 | 3 | 5 | 10
+                )
+              }
+              className="w-[105px] h-[34px] px-2.5 text-[12px] font-medium rounded-[6px] outline-none cursor-pointer"
+              style={{
+                backgroundColor: '#1E1E26',
+                border: '1px solid #2E2E3A',
+                color: '#F4F4F5',
+              }}
+            >
+              <option value={0}>Timer: Off</option>
+              <option value={3}>Timer: 3s</option>
+              <option value={5}>Timer: 5s</option>
+              <option value={10}>Timer: 10s</option>
+            </select>
+
+            {/* 2. Screen Flash Toggle (110px x 34px) */}
+            <button
+              type="button"
+              onClick={() => updateParam('screen_flash', !params.screen_flash)}
+              className="w-[110px] h-[34px] px-3 text-[12px] font-semibold rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
+              style={{
+                backgroundColor: params.screen_flash
+                  ? 'rgba(229, 169, 60, 0.16)'
+                  : '#1E1E26',
+                border: params.screen_flash
+                  ? '1px solid #E5A93C'
+                  : '1px solid #2E2E3A',
+                color: params.screen_flash ? '#E5A93C' : '#F4F4F5',
+              }}
+            >
+              Flash: {params.screen_flash ? 'On' : 'Off'}
+            </button>
+
+            {/* 3. Primary Photo Shutter Button (50px x 50px crisp white circle) */}
+            <button
+              type="button"
+              aria-label="Take Photo Snapshot"
+              onClick={handleTriggerPhoto}
+              className="w-[50px] h-[50px] rounded-full flex items-center justify-center transition-transform active:scale-95 cursor-pointer shrink-0"
+              style={{
+                border: '2px solid #E5A93C',
+                backgroundColor: 'transparent',
+              }}
+            >
+              <span
+                className="w-[38px] h-[38px] rounded-full block transition-colors"
+                style={{ backgroundColor: '#F4F4F5' }}
+              />
+            </button>
+
+            {/* 4. Primary Video Record Button (50px x 50px crimson circle / square stop icon) */}
+            <button
+              type="button"
+              aria-label={isRecording ? 'Stop Recording' : 'Start Video Recording'}
+              onClick={() => {
+                setIsRecording((prev) => {
+                  const next = !prev;
+                  showNotice(
+                    next
+                      ? 'Started MP4 + WAV recording'
+                      : 'Saved MP4 recording to Captures'
+                  );
+                  return next;
+                });
+              }}
+              className="w-[50px] h-[50px] rounded-full flex items-center justify-center transition-transform active:scale-95 cursor-pointer shrink-0"
+              style={{
+                border: isRecording
+                  ? '2px solid #EF4444'
+                  : '2px solid #52525E',
+                backgroundColor: 'transparent',
+              }}
+            >
+              {isRecording ? (
+                <span
+                  className="w-[20px] h-[20px] rounded-[4px] block"
+                  style={{ backgroundColor: '#EF4444' }}
+                />
+              ) : (
+                <span
+                  className="w-[34px] h-[34px] rounded-full block"
+                  style={{ backgroundColor: '#EF4444' }}
+                />
+              )}
+            </button>
+
+            {/* Live Recording Timer Pill (Visible ONLY while recording) */}
+            {isRecording && (
+              <div
+                className="h-[28px] px-3 rounded-[14px] flex items-center justify-center"
+                style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid #EF4444',
+                }}
+              >
+                <span
+                  className="text-[11px] font-bold"
+                  style={{
+                    color: '#EF4444',
+                    fontFamily: '"JetBrains Mono", Consolas, monospace',
+                  }}
+                >
+                  {formatRecordTimer(recordingSec)}
+                </span>
+              </div>
+            )}
+
+            {/* 5. Virtual Cam Button (135px x 34px) */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !params.virtual_cam_active;
+                updateParam('virtual_cam_active', next);
+                showNotice(
+                  next
+                    ? 'Virtual Cam Live (1280x720 @ 30fps)'
+                    : 'Virtual Cam Stopped'
+                );
+              }}
+              className="w-[135px] h-[34px] px-3 text-[12px] font-semibold rounded-[6px] transition-colors cursor-pointer whitespace-nowrap"
+              style={{
+                backgroundColor: params.virtual_cam_active
+                  ? 'rgba(16, 185, 129, 0.16)'
+                  : '#1E1E26',
+                border: params.virtual_cam_active
+                  ? '1px solid #10B981'
+                  : '1px solid #2E2E3A',
+                color: params.virtual_cam_active ? '#10B981' : '#F4F4F5',
+              }}
+            >
+              Virtual Cam: {params.virtual_cam_active ? 'On' : 'Off'}
+            </button>
+          </div>
+        </main>
+
+        {/* 3. SINGLE RIGHT STUDIO SIDEBAR (350px fixed width, #111115) */}
+        <aside
+          className="w-[350px] shrink-0 flex flex-col h-full overflow-hidden"
+          style={{
+            backgroundColor: '#111115',
+            borderLeft: '1px solid #22222A',
+          }}
+        >
+          {/* 4-Tab Segmented Switcher (38px height, full-width equal columns) */}
+          <div className="p-3 pb-0 shrink-0">
+            <div
+              className="h-[38px] grid grid-cols-4 p-1 rounded-[7px] gap-1"
+              style={{
+                backgroundColor: '#14141A',
+                border: '1px solid #23232C',
+              }}
+            >
+              {(
+                [
+                  { id: 'light', label: '1. Light' },
+                  { id: 'color', label: '2. Color' },
+                  { id: 'frame', label: '3. Frame' },
+                  { id: 'studio', label: '4. Studio' },
+                ] as { id: SidebarTab; label: string }[]
+              ).map((tab) => {
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className="h-full rounded-[5px] text-[12px] transition-colors cursor-pointer whitespace-nowrap"
+                    style={{
+                      backgroundColor: active ? '#24242F' : 'transparent',
+                      border: active
+                        ? '1px solid #E5A93C'
+                        : '1px solid transparent',
+                      color: active ? '#F4F4F5' : '#A1A1AA',
+                      fontWeight: active ? 600 : 500,
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Scrollable Tab Content Area (16px padding, 14px vertical spacing) */}
+          <div className="flex-1 overflow-y-auto p-[16px] flex flex-col gap-[14px]">
+            {activeTab === 'light' && (
+              <StudioCard title="EXPOSURE & ROOM LIGHTING">
+                {/* 1. Auto Exposure Toggle (Default: ON) */}
+                <ToggleRow
+                  label="Auto Exposure (RightLight)"
+                  checked={params.auto_exposure}
+                  onChange={(checked) => {
+                    updateParam('auto_exposure', checked);
+                    updateParam('manual_exposure', !checked);
+                  }}
+                />
+
+                {/* 2. Manual Shutter Exposure (-11 EV to -2 EV, enabled only when Auto Exposure is OFF) */}
+                <div
+                  className={
+                    params.auto_exposure
+                      ? 'opacity-40 pointer-events-none transition-opacity'
+                      : 'transition-opacity'
+                  }
+                >
+                  <PrecisionSliderRow
+                    label="Manual Shutter Exposure"
+                    value={params.exposure_ev}
+                    min={-11}
+                    max={-2}
+                    defaultValue={-5}
+                    unit=" EV"
+                    onChange={(v) => updateParam('exposure_ev', v)}
+                  />
+                </div>
+
+                {/* 3. Smart Light Boost (Dark Room Lift) */}
+                <PrecisionSliderRow
+                  label="Smart Light Boost (Dark Room Lift)"
+                  value={params.smart_light_boost}
+                  min={0}
+                  max={100}
+                  defaultValue={0}
+                  unit="%"
+                  onChange={(v) => updateParam('smart_light_boost', v)}
+                />
+
+                {/* 4. Brightness */}
+                <PrecisionSliderRow
+                  label="Brightness"
+                  value={params.hw_brightness}
+                  min={0}
+                  max={255}
+                  defaultValue={128}
+                  onChange={(v) => updateParam('hw_brightness', v)}
+                />
+
+                {/* 5. Contrast */}
+                <PrecisionSliderRow
+                  label="Contrast"
+                  value={params.hw_contrast}
+                  min={0}
+                  max={255}
+                  defaultValue={128}
+                  onChange={(v) => updateParam('hw_contrast', v)}
+                />
+
+                {/* 6. Highlight Roll-Off (S-Curve) */}
+                <PrecisionSliderRow
+                  label="Highlight Roll-Off (Tone Curve)"
+                  value={params.s_curve}
+                  min={0}
+                  max={100}
+                  defaultValue={0}
+                  unit="%"
+                  onChange={(v) => updateParam('s_curve', v)}
+                />
+
+                {/* 7. Optical Sharpness */}
+                <PrecisionSliderRow
+                  label="Optical Sharpness"
+                  value={params.hw_sharpness}
+                  min={0}
+                  max={255}
+                  defaultValue={128}
+                  onChange={(v) => updateParam('hw_sharpness', v)}
+                />
+              </StudioCard>
+            )}
+
+            {activeTab === 'color' && (
               <>
-                {/* TAB 1 - Card 1: FILM LOOKS & 3D LUT ENGINE */}
-                <InspectorCard title="FILM LOOKS & 3D LUT ENGINE">
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {FILM_LOOK_NAMES.map((look) => {
-                      const active = params.film_look === look;
+                {/* Card 1: Studio Look (2-column x 3-row grid of 6 looks) */}
+                <StudioCard title="STUDIO LOOK">
+                  <div className="grid grid-cols-2 gap-2">
+                    {STUDIO_LOOK_NAMES.map((lookName: StudioLookName) => {
+                      const selected = params.active_lut === lookName;
                       return (
                         <button
-                          key={look}
+                          key={lookName}
                           type="button"
-                          onClick={() => updateParam("film_look", look)}
-                          className="h-[34px] px-2.5 rounded-[4px] flex items-center gap-2 text-[11px] font-semibold cursor-pointer transition-colors"
+                          onClick={() => updateParam('active_lut', lookName)}
+                          className="h-[34px] px-2.5 rounded-[6px] text-[12px] transition-colors cursor-pointer truncate"
                           style={{
-                            backgroundColor: active ? "#262118" : "#1C1C24",
-                            border: active
-                              ? "1px solid #E5A93C"
-                              : "1px solid #2C2C38",
-                            color: active ? "#E5A93C" : "#F4F4F6",
+                            backgroundColor: selected
+                              ? 'rgba(229, 169, 60, 0.16)'
+                              : '#1E1E26',
+                            border: selected
+                              ? '1px solid #E5A93C'
+                              : '1px solid #2E2E3A',
+                            color: selected ? '#E5A93C' : '#F4F4F5',
+                            fontWeight: selected ? 600 : 500,
                           }}
                         >
-                          <span
-                            className="w-[6px] h-[6px] rounded-full shrink-0"
-                            style={{
-                              backgroundColor: active
-                                ? "#E5A93C"
-                                : "transparent",
-                            }}
-                          />
-                          <span className="truncate">{look}</span>
+                          {lookName}
                         </button>
                       );
                     })}
                   </div>
 
-                  <div className="flex items-center gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => cubeInputRef.current?.click()}
-                      className="flex-1 h-[28px] px-2 rounded-[4px] text-[11px] font-semibold truncate cursor-pointer"
-                      style={{
-                        backgroundColor: "#1C1C24",
-                        border: "1px solid #2C2C38",
-                        color: "#F4F4F6",
-                      }}
-                    >
-                      {params.custom_cube_name
-                        ? `CUBE: ${params.custom_cube_name}`
-                        : "Load Custom .CUBE LUT..."}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCustomCubeLut(null);
-                        updateParam("custom_cube_name", "");
-                      }}
-                      className="w-[74px] h-[28px] rounded-[4px] text-[11px] font-semibold shrink-0 cursor-pointer"
-                      style={{
-                        backgroundColor: "#1C1C24",
-                        border: "1px solid #2C2C38",
-                        color: "#9CA3AF",
-                      }}
-                    >
-                      Clear LUT
-                    </button>
-                  </div>
-
-                  <PrecisionSlider
-                    title="LUT Intensity / Mix"
+                  <PrecisionSliderRow
+                    label="Look Intensity"
+                    value={params.lut_intensity}
                     min={0}
                     max={100}
-                    defaultValue={100}
-                    value={params.lut_intensity}
-                    step={1}
-                    decimals={0}
-                    suffix="%"
-                    onChange={(v) => updateParam("lut_intensity", v)}
+                    defaultValue={75}
+                    unit="%"
+                    onChange={(v) => updateParam('lut_intensity', v)}
                   />
-                </InspectorCard>
+                </StudioCard>
 
-                {/* TAB 1 - Card 2: PRIMARY COLOR WHEELS / GRADING */}
-                <InspectorCard title="PRIMARY COLOR WHEELS / GRADING">
-                  <PrecisionSlider
-                    title="Color Temp Shift"
-                    min={-100}
-                    max={100}
-                    defaultValue={0}
+                {/* Card 2: White Balance & Color */}
+                <StudioCard title="WHITE BALANCE & COLOR">
+                  <ToggleRow
+                    label="Auto White Balance"
+                    checked={params.auto_wb}
+                    onChange={(v) => updateParam('auto_wb', v)}
+                  />
+
+                  <PrecisionSliderRow
+                    label="Temperature (Warmth)"
                     value={params.temp_shift}
-                    step={1}
-                    decimals={0}
-                    bipolar
-                    onChange={(v) => updateParam("temp_shift", v)}
-                  />
-                  <PrecisionSlider
-                    title="Tint (Green / Magenta)"
-                    min={-100}
-                    max={100}
-                    defaultValue={0}
-                    value={params.tint_shift}
-                    step={1}
-                    decimals={0}
-                    bipolar
-                    onChange={(v) => updateParam("tint_shift", v)}
-                  />
-                  <PrecisionSlider
-                    title="Shadows (Lift)"
                     min={-50}
                     max={50}
                     defaultValue={0}
-                    value={params.shadows_lift}
-                    step={1}
-                    decimals={0}
-                    bipolar
-                    onChange={(v) => updateParam("shadows_lift", v)}
+                    onChange={(v) => updateParam('temp_shift', v)}
                   />
-                  <PrecisionSlider
-                    title="Midtones (Gamma)"
-                    min={0.5}
-                    max={2.0}
-                    defaultValue={1.0}
-                    value={params.midtones_gamma}
-                    step={0.02}
-                    decimals={2}
-                    onChange={(v) => updateParam("midtones_gamma", v)}
-                  />
-                  <PrecisionSlider
-                    title="Highlights (Gain)"
+
+                  <PrecisionSliderRow
+                    label="Tint (Green / Magenta)"
+                    value={params.tint}
                     min={-50}
                     max={50}
                     defaultValue={0}
-                    value={params.highlights_gain}
-                    step={1}
-                    decimals={0}
-                    bipolar
-                    onChange={(v) => updateParam("highlights_gain", v)}
+                    onChange={(v) => updateParam('tint', v)}
                   />
-                  <PrecisionSlider
-                    title="S-Curve Contrast"
-                    min={0.0}
-                    max={1.0}
-                    defaultValue={0.15}
-                    value={params.scurve_contrast}
-                    step={0.02}
-                    decimals={2}
-                    onChange={(v) => updateParam("scurve_contrast", v)}
+
+                  <PrecisionSliderRow
+                    label="Saturation"
+                    value={params.hw_saturation}
+                    min={0}
+                    max={255}
+                    defaultValue={128}
+                    onChange={(v) => updateParam('hw_saturation', v)}
                   />
-                  <PrecisionSlider
-                    title="Vibrance (Smart Sat)"
-                    min={-100}
-                    max={100}
-                    defaultValue={15}
+
+                  <PrecisionSliderRow
+                    label="Natural Vibrance"
                     value={params.vibrance}
-                    step={1}
-                    decimals={0}
-                    bipolar
-                    onChange={(v) => updateParam("vibrance", v)}
+                    min={-50}
+                    max={50}
+                    defaultValue={0}
+                    onChange={(v) => updateParam('vibrance', v)}
                   />
-                </InspectorCard>
-
-                {/* TAB 1 - Card 3: OPTICAL TEXTURE & LENS */}
-                <InspectorCard title="OPTICAL TEXTURE & LENS">
-                  <PrecisionSlider
-                    title="Optical Vignette"
-                    min={0.0}
-                    max={1.0}
-                    defaultValue={0.15}
-                    value={params.optical_vignette}
-                    step={0.02}
-                    decimals={2}
-                    onChange={(v) => updateParam("optical_vignette", v)}
-                  />
-                  <PrecisionSlider
-                    title="Organic Film Grain"
-                    min={0.0}
-                    max={1.0}
-                    defaultValue={0.0}
-                    value={params.film_grain}
-                    step={0.02}
-                    decimals={2}
-                    onChange={(v) => updateParam("film_grain", v)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      updateParam("lut_intensity", 100);
-                      updateParam("temp_shift", 0);
-                      updateParam("tint_shift", 0);
-                      updateParam("shadows_lift", 0);
-                      updateParam("midtones_gamma", 1.0);
-                      updateParam("highlights_gain", 0);
-                      updateParam("scurve_contrast", 0.15);
-                      updateParam("vibrance", 15);
-                      updateParam("optical_vignette", 0.15);
-                      updateParam("film_grain", 0.0);
-                    }}
-                    className="w-full h-[30px] rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                    style={{
-                      backgroundColor: "#1C1C24",
-                      border: "1px solid #2C2C38",
-                      color: "#F4F4F6",
-                    }}
-                  >
-                    Reset Color Grade
-                  </button>
-                </InspectorCard>
+                </StudioCard>
               </>
             )}
 
-            {rightTabIndex === 1 && (
+            {activeTab === 'frame' && (
               <>
-                {/* TAB 2 - Card 1: BACKGROUND & STUDIO LIGHTING MODE */}
-                <InspectorCard title="BACKGROUND & STUDIO LIGHTING MODE">
-                  <select
-                    aria-label="Background and Studio Lighting Mode"
-                    value={params.ai_mode}
-                    onChange={(e) =>
-                      updateParam("ai_mode", e.target.value as AIStudioMode)
-                    }
-                    className="w-full h-[30px] px-2 rounded-[4px] text-[11px] font-medium cursor-pointer focus:outline-none"
-                    style={{
-                      backgroundColor: "#1C1C24",
-                      border: "1px solid #2C2C38",
-                      color: "#F4F4F6",
-                    }}
-                  >
-                    <option value="Off (Natural Scene)">
-                      Off (Natural Scene)
-                    </option>
-                    <option value="Studio Spotlight (Dim Background)">
-                      Studio Spotlight (Dim Background)
-                    </option>
-                    <option value="Optical Bokeh Blur (DSLR Portrait)">
-                      Optical Bokeh Blur (DSLR Portrait)
-                    </option>
-                    <option value="Custom Studio Backdrop">
-                      Custom Studio Backdrop
-                    </option>
-                  </select>
-
-                  <PrecisionSlider
-                    title="Spotlight Dimming %"
-                    min={10}
-                    max={85}
-                    defaultValue={45}
-                    value={params.spotlight_dim_pct}
-                    step={1}
-                    decimals={0}
-                    suffix="%"
-                    onChange={(v) => updateParam("spotlight_dim_pct", v)}
-                  />
-                  <PrecisionSlider
-                    title="Bokeh Blur Radius"
-                    min={5}
-                    max={65}
-                    defaultValue={25}
-                    value={params.bokeh_blur_radius}
-                    step={2}
-                    decimals={0}
-                    onChange={(v) => updateParam("bokeh_blur_radius", v)}
-                  />
-                  <PrecisionSlider
-                    title="Edge Feather / Spill Suppression"
-                    min={1}
-                    max={25}
-                    defaultValue={7}
-                    value={params.edge_feather}
-                    step={1}
-                    decimals={0}
-                    onChange={(v) => updateParam("edge_feather", v)}
+                {/* Card 1: Digital PTZ & Geometry */}
+                <StudioCard title="DIGITAL PTZ & GEOMETRY">
+                  <PrecisionSliderRow
+                    label="Optical Zoom"
+                    value={params.zoom}
+                    min={100}
+                    max={300}
+                    defaultValue={100}
+                    unit="%"
+                    onChange={(v) => updateParam('zoom', v)}
                   />
 
-                  <div className="grid grid-cols-4 gap-1.5 pt-1">
-                    {[
-                      { name: "Obsidian", hex: "#121216" },
-                      { name: "Slate", hex: "#1E293B" },
-                      { name: "Plum", hex: "#2E1035" },
-                      { name: "Forest", hex: "#0F291E" },
-                    ].map((sw) => (
-                      <button
-                        key={sw.name}
-                        type="button"
-                        onClick={() => {
-                          setBackdropImageEl(null);
-                          updateParam("backdrop_color_hex", sw.hex);
-                          updateParam("ai_mode", "Custom Studio Backdrop");
-                        }}
-                        className="h-[26px] rounded-[4px] text-[10px] font-semibold cursor-pointer"
-                        style={{
-                          backgroundColor: sw.hex,
-                          border:
-                            params.backdrop_color_hex === sw.hex
-                              ? "1px solid #E5A93C"
-                              : "1px solid #3E3E4E",
-                          color: "#F4F4F6",
-                        }}
-                      >
-                        {sw.name}
-                      </button>
-                    ))}
-                  </div>
+                  <PrecisionSliderRow
+                    label="Horizontal Pan"
+                    value={params.pan_x}
+                    min={-100}
+                    max={100}
+                    defaultValue={0}
+                    unit="%"
+                    onChange={(v) => updateParam('pan_x', v)}
+                  />
 
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <PrecisionSliderRow
+                    label="Vertical Tilt"
+                    value={params.tilt_y}
+                    min={-100}
+                    max={100}
+                    defaultValue={0}
+                    unit="%"
+                    onChange={(v) => updateParam('tilt_y', v)}
+                  />
+
+                  <div className="grid grid-cols-3 gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => colorPickerInputRef.current?.click()}
-                      className="h-[28px] rounded-[4px] text-[10.5px] font-semibold cursor-pointer"
+                      onClick={() => updateParam('mirror_h', !params.mirror_h)}
+                      className="h-[34px] rounded-[6px] text-[12px] font-medium cursor-pointer transition-colors"
                       style={{
-                        backgroundColor: "#1C1C24",
-                        border: "1px solid #2C2C38",
-                        color: "#F4F4F6",
+                        backgroundColor: params.mirror_h
+                          ? 'rgba(229, 169, 60, 0.16)'
+                          : '#1E1E26',
+                        border: params.mirror_h
+                          ? '1px solid #E5A93C'
+                          : '1px solid #2E2E3A',
+                        color: params.mirror_h ? '#E5A93C' : '#F4F4F5',
                       }}
                     >
-                      Pick Custom Color...
+                      Mirror H
                     </button>
+
                     <button
                       type="button"
-                      onClick={() => backdropInputRef.current?.click()}
-                      className="h-[28px] rounded-[4px] text-[10.5px] font-semibold cursor-pointer"
+                      onClick={() => updateParam('flip_v', !params.flip_v)}
+                      className="h-[34px] rounded-[6px] text-[12px] font-medium cursor-pointer transition-colors"
                       style={{
-                        backgroundColor: "#1C1C24",
-                        border: "1px solid #2C2C38",
-                        color: "#F4F4F6",
+                        backgroundColor: params.flip_v
+                          ? 'rgba(229, 169, 60, 0.16)'
+                          : '#1E1E26',
+                        border: params.flip_v
+                          ? '1px solid #E5A93C'
+                          : '1px solid #2E2E3A',
+                        color: params.flip_v ? '#E5A93C' : '#F4F4F5',
                       }}
                     >
-                      Load Backdrop Image...
+                      Flip V
                     </button>
-                  </div>
-                </InspectorCard>
 
-                {/* TAB 2 - Card 2: AI CENTER STAGE (AUTO-FRAMING) */}
-                <InspectorCard title="AI CENTER STAGE (AUTO-FRAMING)">
-                  <ToggleSwitch
-                    label="AI Face Auto-Framing (Center Stage)"
-                    checked={params.auto_framing}
-                    onChange={(v) => updateParam("auto_framing", v)}
-                  />
-                  <PrecisionSlider
-                    title="Subject Target Zoom"
-                    min={1.15}
-                    max={2.2}
-                    defaultValue={1.35}
-                    value={params.subject_target_zoom}
-                    step={0.05}
-                    decimals={2}
-                    suffix="x"
-                    onChange={(v) => updateParam("subject_target_zoom", v)}
-                  />
-                  <PrecisionSlider
-                    title="Gimbal Damping (Smoothness)"
-                    min={0.02}
-                    max={0.3}
-                    defaultValue={0.08}
-                    value={params.gimbal_damping}
-                    step={0.01}
-                    decimals={2}
-                    onChange={(v) => updateParam("gimbal_damping", v)}
-                  />
-                </InspectorCard>
-
-                {/* TAB 2 - Card 3: PORTRAIT SKIN RETOUCH */}
-                <InspectorCard title="PORTRAIT SKIN RETOUCH">
-                  <PrecisionSlider
-                    title="Frequency Skin Smoothing"
-                    min={0.0}
-                    max={1.0}
-                    defaultValue={0.0}
-                    value={params.skin_smoothing}
-                    step={0.05}
-                    decimals={2}
-                    onChange={(v) => updateParam("skin_smoothing", v)}
-                  />
-                </InspectorCard>
-              </>
-            )}
-
-            {rightTabIndex === 2 && (
-              <>
-                {/* TAB 3 - Card 1: VIEWPORT TELEMETRY & GUIDES */}
-                <InspectorCard title="VIEWPORT TELEMETRY & GUIDES">
-                  <ToggleSwitch
-                    label="Show Live Histogram"
-                    checked={params.show_histogram}
-                    onChange={(v) => updateParam("show_histogram", v)}
-                  />
-                  <ToggleSwitch
-                    label="Show Audio VU Meter"
-                    checked={params.show_vu_meter}
-                    onChange={(v) => updateParam("show_vu_meter", v)}
-                  />
-                  <ToggleSwitch
-                    label="Rule of Thirds Grid"
-                    checked={params.guide_thirds}
-                    onChange={(v) => updateParam("guide_thirds", v)}
-                  />
-                  <ToggleSwitch
-                    label="Golden Ratio Grid"
-                    checked={params.guide_golden}
-                    onChange={(v) => updateParam("guide_golden", v)}
-                  />
-                  <ToggleSwitch
-                    label="Center Crosshair & Safe Area"
-                    checked={params.guide_crosshair_safe}
-                    onChange={(v) => updateParam("guide_crosshair_safe", v)}
-                  />
-                  <ToggleSwitch
-                    label="2.35:1 Anamorphic Crop Bars"
-                    checked={params.guide_anamorphic}
-                    onChange={(v) => updateParam("guide_anamorphic", v)}
-                  />
-                  <ToggleSwitch
-                    label="9:16 Vertical Reel Guide"
-                    checked={params.guide_vertical_reel}
-                    onChange={(v) => updateParam("guide_vertical_reel", v)}
-                  />
-                </InspectorCard>
-
-                {/* TAB 3 - Card 2: LOWER THIRD BROADCAST GRAPHIC */}
-                <InspectorCard title="LOWER THIRD BROADCAST GRAPHIC">
-                  <ToggleSwitch
-                    label="Show Lower Third Card"
-                    checked={params.show_lower_third}
-                    onChange={(v) => updateParam("show_lower_third", v)}
-                  />
-                  <input
-                    type="text"
-                    aria-label="Presenter Name"
-                    placeholder="Presenter Name"
-                    value={params.lower_third_name}
-                    onChange={(e) =>
-                      updateParam("lower_third_name", e.target.value)
-                    }
-                    className="w-full h-[28px] px-2 rounded-[4px] text-[11px] focus:outline-none"
-                    style={{
-                      backgroundColor: "#1C1C24",
-                      border: "1px solid #2C2C38",
-                      color: "#F4F4F6",
-                    }}
-                  />
-                  <input
-                    type="text"
-                    aria-label="Title or Role"
-                    placeholder="Title / Role"
-                    value={params.lower_third_role}
-                    onChange={(e) =>
-                      updateParam("lower_third_role", e.target.value)
-                    }
-                    className="w-full h-[28px] px-2 rounded-[4px] text-[11px] focus:outline-none"
-                    style={{
-                      backgroundColor: "#1C1C24",
-                      border: "1px solid #2C2C38",
-                      color: "#F4F4F6",
-                    }}
-                  />
-                  <select
-                    aria-label="Lower Third Accent Style"
-                    value={params.lower_third_accent}
-                    onChange={(e) =>
-                      updateParam("lower_third_accent", e.target.value)
-                    }
-                    className="w-full h-[28px] px-2 rounded-[4px] text-[11px] cursor-pointer focus:outline-none"
-                    style={{
-                      backgroundColor: "#1C1C24",
-                      border: "1px solid #2C2C38",
-                      color: "#F4F4F6",
-                    }}
-                  >
-                    <option value="Leica Amber (#E5A93C)">
-                      Leica Amber (#E5A93C)
-                    </option>
-                    <option value="Minimal Monochrome (#F4F4F6)">
-                      Minimal Monochrome (#F4F4F6)
-                    </option>
-                    <option value="Crimson Broadcast (#E11D48)">
-                      Crimson Broadcast (#E11D48)
-                    </option>
-                  </select>
-                </InspectorCard>
-
-                {/* TAB 3 - Card 3: STUDIO WATERMARK & TIMECODE */}
-                <InspectorCard title="STUDIO WATERMARK & TIMECODE">
-                  <ToggleSwitch
-                    label="Show Custom PNG Logo"
-                    checked={params.show_watermark}
-                    onChange={(v) => updateParam("show_watermark", v)}
-                  />
-                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => watermarkInputRef.current?.click()}
-                      className="flex-1 h-[28px] px-2 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                      style={{
-                        backgroundColor: "#1C1C24",
-                        border: "1px solid #2C2C38",
-                        color: "#F4F4F6",
-                      }}
-                    >
-                      Select PNG Logo...
-                    </button>
-                    <select
-                      aria-label="Watermark Corner Position"
-                      value={params.watermark_position}
-                      onChange={(e) =>
+                      onClick={() =>
                         updateParam(
-                          "watermark_position",
-                          e.target.value as StudioParams["watermark_position"]
+                          'rotation_deg',
+                          ((params.rotation_deg + 90) % 360) as
+                            | 0
+                            | 90
+                            | 180
+                            | 270
                         )
                       }
-                      className="w-[110px] h-[28px] px-1.5 rounded-[4px] text-[11px] cursor-pointer focus:outline-none"
+                      className="h-[34px] rounded-[6px] text-[12px] font-medium cursor-pointer transition-colors"
                       style={{
-                        backgroundColor: "#1C1C24",
-                        border: "1px solid #2C2C38",
-                        color: "#F4F4F6",
+                        backgroundColor:
+                          params.rotation_deg !== 0
+                            ? 'rgba(229, 169, 60, 0.16)'
+                            : '#1E1E26',
+                        border:
+                          params.rotation_deg !== 0
+                            ? '1px solid #E5A93C'
+                            : '1px solid #2E2E3A',
+                        color:
+                          params.rotation_deg !== 0 ? '#E5A93C' : '#F4F4F5',
                       }}
                     >
-                      <option value="Top-Right">Top-Right</option>
-                      <option value="Top-Left">Top-Left</option>
-                      <option value="Bottom-Right">Bottom-Right</option>
-                      <option value="Bottom-Left">Bottom-Left</option>
+                      Rotate 90°
+                    </button>
+                  </div>
+                </StudioCard>
+
+                {/* Card 2: Subject Focus & Background (Default: OFF) */}
+                <StudioCard title="SUBJECT FOCUS & BACKGROUND">
+                  <ToggleRow
+                    label="AI Smart Face Centering"
+                    checked={params.ai_auto_frame}
+                    onChange={(v) => updateParam('ai_auto_frame', v)}
+                  />
+
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[12px] font-medium text-[#F4F4F5]">
+                      Background Mode
+                    </span>
+                    <select
+                      aria-label="Background Mode"
+                      value={params.bg_mode}
+                      onChange={(e) =>
+                        updateParam('bg_mode', e.target.value as BackgroundMode)
+                      }
+                      className="w-full h-[34px] px-2.5 text-[12px] font-medium rounded-[6px] outline-none cursor-pointer"
+                      style={{
+                        backgroundColor: '#1E1E26',
+                        border: '1px solid #2E2E3A',
+                        color: '#F4F4F5',
+                      }}
+                    >
+                      <option value="Off (Natural Background)">
+                        Off (Natural Background)
+                      </option>
+                      <option value="Subtle Studio Spotlight">
+                        Subtle Studio Spotlight
+                      </option>
+                      <option value="Soft Bokeh Blur">Soft Bokeh Blur</option>
+                      <option value="Custom Backdrop">Custom Backdrop</option>
                     </select>
                   </div>
-                  <PrecisionSlider
-                    title="Logo Opacity"
-                    min={10}
-                    max={100}
-                    defaultValue={80}
-                    value={params.watermark_opacity}
-                    step={1}
-                    decimals={0}
-                    suffix="%"
-                    onChange={(v) => updateParam("watermark_opacity", v)}
+
+                  <div
+                    className={
+                      params.bg_mode === 'Off (Natural Background)'
+                        ? 'opacity-40 pointer-events-none transition-opacity'
+                        : 'transition-opacity'
+                    }
+                  >
+                    <PrecisionSliderRow
+                      label="Effect Strength"
+                      value={
+                        params.bg_mode === 'Soft Bokeh Blur'
+                          ? params.bokeh_strength
+                          : params.spotlight_dim
+                      }
+                      min={0}
+                      max={85}
+                      defaultValue={35}
+                      unit="%"
+                      onChange={(v) => {
+                        if (params.bg_mode === 'Soft Bokeh Blur') {
+                          updateParam('bokeh_strength', Math.max(5, v));
+                        } else {
+                          updateParam('spotlight_dim', v);
+                        }
+                      }}
+                    />
+                  </div>
+                </StudioCard>
+              </>
+            )}
+
+            {activeTab === 'studio' && (
+              <>
+                {/* Card 1: Quick Studio Presets */}
+                <StudioCard title="QUICK STUDIO PRESETS">
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.keys(FACTORY_PRESETS).map((presetName) => {
+                      const active = params.active_preset_name === presetName;
+                      return (
+                        <button
+                          key={presetName}
+                          type="button"
+                          onClick={() => handleApplyPreset(presetName)}
+                          className="h-[34px] px-2.5 rounded-[6px] text-[12px] transition-colors cursor-pointer truncate"
+                          style={{
+                            backgroundColor: active
+                              ? 'rgba(229, 169, 60, 0.16)'
+                              : '#1E1E26',
+                            border: active
+                              ? '1px solid #E5A93C'
+                              : '1px solid #2E2E3A',
+                            color: active ? '#E5A93C' : '#F4F4F5',
+                            fontWeight: active ? 600 : 500,
+                          }}
+                        >
+                          {presetName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </StudioCard>
+
+                {/* Card 2: Viewport Guides & Output */}
+                <StudioCard title="VIEWPORT GUIDES & OUTPUT">
+                  <ToggleRow
+                    label="Rule-of-Thirds Grid"
+                    checked={params.show_grid}
+                    onChange={(v) => updateParam('show_grid', v)}
                   />
-                  <ToggleSwitch
-                    label="Burn-in Cinema Timecode & Date"
-                    checked={params.burn_in_timecode}
-                    onChange={(v) => updateParam("burn_in_timecode", v)}
+
+                  <ToggleRow
+                    label="2.35:1 Cinema Letterbox Bars"
+                    checked={params.show_cinema_bars}
+                    onChange={(v) => updateParam('show_cinema_bars', v)}
                   />
-                </InspectorCard>
+
+                  <ToggleRow
+                    label="Show Corner Histogram & Mic Meter"
+                    checked={params.show_corner_hud}
+                    onChange={(v) => updateParam('show_corner_hud', v)}
+                  />
+
+                  <ToggleRow
+                    label="1080p HD Super-Resolution Output"
+                    checked={params.upscale_1080p}
+                    onChange={(v) => updateParam('upscale_1080p', v)}
+                  />
+                </StudioCard>
               </>
             )}
           </div>
         </aside>
       </div>
 
-      {/* =====================================================================
-          ZONE E — Bottom Transport, Capture & Preset Deck (Fixed Height: 76px)
-      ===================================================================== */}
-      <footer
-        className="h-[76px] px-[18px] flex items-center justify-between gap-4 shrink-0"
-        style={{
-          backgroundColor: "#0A0A0D",
-          borderTop: "1px solid #22222B",
-        }}
-      >
-        {/* Left Cluster (Preset Management) */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span
-            className="text-[10px] font-bold uppercase tracking-[1.2px]"
-            style={{ color: "#71717A" }}
-          >
-            PRESET:
-          </span>
-
-          {savingPresetMode ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                aria-label="New Preset Name"
-                value={newPresetTitle}
-                onChange={(e) => setNewPresetTitle(e.target.value)}
-                className="w-[150px] h-[32px] px-2 rounded-[4px] text-[11px] focus:outline-none"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #E5A93C",
-                  color: "#F4F4F6",
-                }}
-              />
-              <button
-                type="button"
-                onClick={handleSaveCustomPreset}
-                className="h-[32px] px-2.5 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                style={{
-                  backgroundColor: "#262118",
-                  border: "1px solid #E5A93C",
-                  color: "#E5A93C",
-                }}
-              >
-                Confirm
-              </button>
-              <button
-                type="button"
-                onClick={() => setSavingPresetMode(false)}
-                className="h-[32px] px-2 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#9CA3AF",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <>
-              <select
-                aria-label="Studio Preset Selector"
-                value={activePresetName}
-                onChange={(e) => handleSelectPreset(e.target.value)}
-                className="w-[200px] h-[32px] px-2 rounded-[4px] text-[11px] font-medium cursor-pointer focus:outline-none"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#F4F4F6",
-                }}
-              >
-                {presetNames.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={() => setSavingPresetMode(true)}
-                className="w-[58px] h-[32px] rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#F4F4F6",
-                }}
-              >
-                Save
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDeletePreset}
-                className="w-[58px] h-[32px] rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#F4F4F6",
-                }}
-              >
-                Delete
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetAll}
-                className="w-[74px] h-[32px] rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#F4F4F6",
-                }}
-              >
-                Reset All
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Center Cluster (Tactile Camera Transport Controls) */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <select
-            aria-label="Shutter Countdown Timer"
-            value={timerMode}
-            onChange={(e) => setTimerMode(e.target.value)}
-            className="w-[100px] h-[32px] px-2 rounded-[4px] text-[11px] font-medium cursor-pointer focus:outline-none"
-            style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
-            }}
-          >
-            <option value="Timer: Off">Timer: Off</option>
-            <option value="3s Timer">3s Timer</option>
-            <option value="5s Timer">5s Timer</option>
-            <option value="10s Timer">10s Timer</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => setFlashEnabled(!flashEnabled)}
-            className="w-[68px] h-[32px] rounded-[4px] text-[11px] font-semibold cursor-pointer transition-colors"
-            style={{
-              backgroundColor: flashEnabled ? "#262118" : "#1C1C24",
-              border: flashEnabled
-                ? "1px solid #E5A93C"
-                : "1px solid #2C2C38",
-              color: flashEnabled ? "#E5A93C" : "#F4F4F6",
-            }}
-          >
-            FLASH
-          </button>
-
-          <ShutterReleaseButton onClick={handleShutterRelease} />
-
-          <CinemaRecordButton
-            recording={isRecording}
-            onClick={handleToggleRecord}
-          />
-
-          <PauseRecordButton
-            enabled={isRecording}
-            paused={isPausedRecording}
-            onClick={() => setIsPausedRecording(!isPausedRecording)}
-          />
-
-          <button
-            type="button"
-            onClick={handleBurst3x}
-            className="w-[78px] h-[32px] rounded-[4px] text-[11px] font-semibold whitespace-nowrap cursor-pointer"
-            style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
-            }}
-          >
-            BURST 3X
-          </button>
-        </div>
-
-        {/* Right Cluster (Output & Routing) */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <select
-            aria-label="Snapshot Format"
-            value={snapshotFormat}
-            onChange={(e) => setSnapshotFormat(e.target.value)}
-            className="w-[120px] h-[32px] px-2 rounded-[4px] text-[11px] font-medium cursor-pointer focus:outline-none"
-            style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
-            }}
-          >
-            <option value="PNG Lossless">PNG Lossless</option>
-            <option value="JPG 100%">JPG 100%</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => {
-              const next = !isVirtualCam;
-              setIsVirtualCam(next);
-              setStatusBanner(
-                next
-                  ? "PYVIRTUALCAM BROADCAST ACTIVE (OBS VIRTUALCAM 30FPS)"
-                  : "VIRTUAL CAMERA BROADCAST STOPPED"
-              );
-            }}
-            className="w-[150px] h-[34px] rounded-[4px] text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors"
-            style={{
-              backgroundColor: isVirtualCam ? "#0F2922" : "#1C1C24",
-              border: isVirtualCam
-                ? "1px solid #10B981"
-                : "1px solid #2C2C38",
-              color: isVirtualCam ? "#10B981" : "#F4F4F6",
-            }}
-          >
-            {isVirtualCam ? "VIRTUAL CAM: LIVE" : "VIRTUAL CAM: OFF"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowGalleryModal(true)}
-            className="w-[115px] h-[34px] rounded-[4px] text-[11px] font-semibold whitespace-nowrap cursor-pointer"
-            style={{
-              backgroundColor: "#1C1C24",
-              border: "1px solid #2C2C38",
-              color: "#F4F4F6",
-            }}
-          >
-            OPEN GALLERY {capturedItems.length > 0 ? `(${capturedItems.length})` : ""}
-          </button>
-        </div>
-      </footer>
-
-      {/* DirectShow Native Driver Property Sheet Modal (`DRV CFG`) */}
-      {showDriverSheetModal && (
+      {/* GALLERY MODAL */}
+      {galleryModalOpen && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="DirectShow UVC Hardware Register Sheet"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ backgroundColor: "rgba(7, 7, 9, 0.82)" }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          style={{ backgroundColor: 'rgba(9, 9, 11, 0.82)' }}
         >
           <div
-            className="w-full max-w-[460px] rounded-[6px] p-4 flex flex-col gap-3"
+            className="w-full max-w-3xl rounded-[10px] p-5 flex flex-col gap-4 max-h-[82vh]"
             style={{
-              backgroundColor: "#15151B",
-              border: "1px solid #2C2C38",
+              backgroundColor: '#111115',
+              border: '1px solid #23232C',
             }}
           >
-            <div className="flex items-center justify-between border-b border-[#22222B] pb-2">
-              <span className="text-[11px] font-bold tracking-[1.2px] text-[#F4F4F6]">
-                DIRECTSHOW UVC HARDWARE REGISTER SHEET (CAP_PROP_SETTINGS)
-              </span>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-[14px] font-bold text-[#F4F4F5]">
+                  Captured Studio Stills ({capturedGallery.length})
+                </h2>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Saved in lossless PNG format (~/Pictures/Leica_C270_Captures on Windows)
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowDriverSheetModal(false)}
-                className="px-2 py-0.5 rounded-[4px] text-[10px] font-semibold cursor-pointer bg-[#1C1C24] border border-[#2C2C38]"
+                onClick={() => setGalleryModalOpen(false)}
+                className="h-[32px] px-3 text-[12px] font-medium rounded-[6px] cursor-pointer"
+                style={{
+                  backgroundColor: '#1E1E26',
+                  border: '1px solid #2E2E3A',
+                  color: '#F4F4F5',
+                }}
               >
-                CLOSE
+                Close
               </button>
             </div>
-            <div className="font-mono text-[11px] text-[#9CA3AF] flex flex-col gap-1.5">
-              <div>DEVICE: {selectedDevice}</div>
-              <div>BACKEND: cv2.CAP_{driverBackend === "DirectShow" ? "DSHOW" : "MSMF"} (MJPG FourCC)</div>
-              <div>
-                CAP_PROP_AUTO_EXPOSURE:{" "}
-                <span className="text-[#E5A93C]">
-                  {params.manual_exposure_lock ? "0.25 (Manual Lock)" : "0.75 (Auto)"}
-                </span>
+
+            {capturedGallery.length === 0 ? (
+              <div
+                className="py-16 text-center rounded-[8px] text-[12px] text-[#A1A1AA]"
+                style={{
+                  backgroundColor: '#18181E',
+                  border: '1px solid #23232C',
+                }}
+              >
+                No photos captured yet. Click the circular white shutter button in the bottom capture bar.
               </div>
-              <div>
-                CAP_PROP_EXPOSURE: <span className="text-[#E5A93C]">{params.hardware_exposure} EV</span>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto pr-1">
+                {capturedGallery.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-[8px] p-2 flex flex-col gap-2"
+                    style={{
+                      backgroundColor: '#18181E',
+                      border: '1px solid #23232C',
+                    }}
+                  >
+                    <img
+                      src={item.dataUrl}
+                      alt={item.id}
+                      className="w-full aspect-video object-cover rounded-[4px]"
+                    />
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-[#F4F4F5] font-medium">
+                        {item.look}
+                      </span>
+                      <a
+                        href={item.dataUrl}
+                        download={`${item.id}.png`}
+                        className="text-[#E5A93C] font-semibold hover:underline"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div>
-                CAP_PROP_GAIN: <span className="text-[#E5A93C]">{params.hardware_gain} ISO</span>
-              </div>
-              <div>
-                POWERLINE FREQUENCY (REG 39):{" "}
-                <span className="text-[#10B981]">
-                  {params.anti_flicker_50hz ? "50 Hz Anti-Flicker" : "60 Hz"}
-                </span>
-              </div>
-              <div className="pt-1 text-[#71717A]">
-                STATUS: {statusBanner}
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Native Python Repository Inspector Modal */}
+      {/* PYTHON SOURCE REPOSITORY MODAL */}
       <PythonRepoModal
-        open={showRepoModal}
-        onClose={() => setShowRepoModal(false)}
+        open={repoModalOpen}
+        onClose={() => setRepoModalOpen(false)}
         repoFiles={repoFiles}
       />
+    </div>
+  );
+}
 
-      {/* Studio Media Gallery Modal */}
-      <StudioGalleryModal
-        open={showGalleryModal}
-        onClose={() => setShowGalleryModal(false)}
-        captures={capturedItems}
-        onClearGallery={() => setCapturedItems([])}
-      />
+/**
+ * Clean Elevated Studio Card (#18181E with 1px solid #23232C border and 8px radius)
+ */
+function StudioCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-[8px] p-[14px] flex flex-col gap-[12px]"
+      style={{
+        backgroundColor: '#18181E',
+        border: '1px solid #23232C',
+      }}
+    >
+      <h3
+        className="text-[11px] font-bold uppercase tracking-[1.0px]"
+        style={{ color: '#A1A1AA' }}
+      >
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Spacious 2-Row Precision Slider Row (46px height, double-click to reset to default)
+ */
+function PrecisionSliderRow({
+  label,
+  value,
+  min,
+  max,
+  defaultValue,
+  unit = '',
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  defaultValue: number;
+  unit?: string;
+  onChange: (val: number) => void;
+}) {
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+
+  return (
+    <div
+      className="h-[46px] flex flex-col justify-between select-none"
+      onDoubleClick={() => onChange(defaultValue)}
+      title="Double-click to reset to default"
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-medium text-[#F4F4F5]">{label}</span>
+        <span
+          className="text-[12px] font-semibold"
+          style={{
+            color: '#E5A93C',
+            fontFamily: '"JetBrains Mono", Consolas, monospace',
+          }}
+        >
+          {value}
+          {unit}
+        </span>
+      </div>
+      <div className="relative h-[18px] flex items-center">
+        <div
+          className="w-full h-[5px] rounded-[3px] overflow-hidden"
+          style={{ backgroundColor: '#272732' }}
+        >
+          <div
+            className="h-full rounded-[3px]"
+            style={{
+              width: `${pct}%`,
+              backgroundColor: '#E5A93C',
+            }}
+          />
+        </div>
+        <input
+          type="range"
+          aria-label={label}
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+        <div
+          className="pointer-events-none absolute w-[14px] h-[14px] rounded-full -translate-x-1/2"
+          style={{
+            left: `${pct}%`,
+            backgroundColor: '#F4F4F5',
+            border: '2px solid #E5A93C',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Clean Toggle Switch Row (32px height)
+ */
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div
+      onClick={() => onChange(!checked)}
+      className="h-[32px] flex items-center justify-between cursor-pointer select-none"
+    >
+      <span className="text-[12px] font-medium text-[#F4F4F5]">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange(!checked);
+        }}
+        className="w-[38px] h-[20px] rounded-full relative transition-colors cursor-pointer shrink-0"
+        style={{
+          backgroundColor: checked ? '#E5A93C' : '#272732',
+          border: checked ? '1px solid #E5A93C' : '1px solid #383846',
+        }}
+      >
+        <span
+          className="w-[14px] h-[14px] rounded-full block transition-transform"
+          style={{
+            backgroundColor: checked ? '#09090B' : '#A1A1AA',
+            transform: checked ? 'translateX(19px)' : 'translateX(2px)',
+          }}
+        />
+      </button>
     </div>
   );
 }
