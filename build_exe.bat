@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableDelayedExpansion
-title LEICA // C270 OPTIX STUDIO — Standalone EXE Builder (PyInstaller)
+title LUMIXA PRO // C270 CINEMA STUDIO — Standalone EXE Builder (PyInstaller)
 color 0E
 
 echo ============================================================================
-echo   LEICA // C270 OPTIX STUDIO — STANDALONE WINDOWS .EXE COMPILER
+echo   LUMIXA PRO // C270 CINEMA STUDIO — STANDALONE WINDOWS .EXE COMPILER
 echo ============================================================================
 echo.
 
@@ -19,9 +19,9 @@ if not exist ".venv\Scripts\python.exe" (
 echo [2/3] Installing PyInstaller...
 ".venv\Scripts\python.exe" -m pip install pyinstaller
 
-echo [3/3] Building standalone Leica_C270_Optix_Studio.exe...
+echo [3/3] Building standalone Lumixa_Pro_C270_Studio.exe...
 ".venv\Scripts\pyinstaller.exe" --noconfirm --clean --windowed --onefile ^
-    --name "Leica_C270_Optix_Studio" ^
+    --name "Lumixa_Pro_C270_Studio" ^
     --hidden-import "PyQt6" ^
     --hidden-import "cv2" ^
     --hidden-import "numpy" ^
@@ -32,10 +32,10 @@ echo [3/3] Building standalone Leica_C270_Optix_Studio.exe...
     main.py
 
 echo.
-if exist "dist\Leica_C270_Optix_Studio.exe" (
-    echo [SUCCESS] Standalone executable built at: dist\Leica_C270_Optix_Studio.exe
+if exist "dist\Lumixa_Pro_C270_Studio.exe" (
+    echo [SUCCESS] Standalone executable built at: dist\Lumixa_Pro_C270_Studio.exe
 ) else (
-    echo [ERROR] PyInstaller build did not produce dist\Leica_C270_Optix_Studio.exe
+    echo [ERROR] PyInstaller build did not produce dist\Lumixa_Pro_C270_Studio.exe
 )
 pause
 endlocal

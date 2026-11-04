@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LEICA // C270 OPTIX STUDIO
-Industrial UVC Hardware Controller, Optical ISP Pipeline, 3D LUT Color Grading Engine,
-AI Studio Segmentation, and Broadcast Recorder for Logitech C270 HD Webcam.
+LUMIXA PRO // C270 CINEMA STUDIO
+Native Windows Python (PyQt6 + OpenCV DirectShow) Camera Hardware Controller,
+True 30-FPS Low-Light Unlock Engine, 1D/3D .CUBE LUT Color Grading Studio,
+AI Portrait Segmentation, Wall-Clock 1.0x CFR Broadcast Recorder, and GitHub Auto-Sync.
 """
 
 import sys
@@ -16,8 +17,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
+from create_desktop_shortcut import ensure_desktop_shortcut
 from ui.main_window import MainWindow
-from ui.styles import OBSIDIAN_LEICA_STYLESHEET
+from ui.styles import OBSIDIAN_LEICA_STYLESHEET, create_lumixa_3d_lens_icon
 
 
 def apply_windows_dark_titlebar(hwnd: int) -> None:
@@ -29,7 +31,6 @@ def apply_windows_dark_titlebar(hwnd: int) -> None:
         return
     try:
         dwmapi = ctypes.windll.dwmapi
-        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 11 / Win10 20H1+)
         value = ctypes.c_int(1)
         dwmapi.DwmSetWindowAttribute(
             int(hwnd),
@@ -37,14 +38,12 @@ def apply_windows_dark_titlebar(hwnd: int) -> None:
             ctypes.byref(value),
             ctypes.sizeof(value),
         )
-        # Fallback attribute 19 for older Windows 10 builds
         dwmapi.DwmSetWindowAttribute(
             int(hwnd),
             19,
             ctypes.byref(value),
             ctypes.sizeof(value),
         )
-        # DWMWA_CAPTION_COLOR = 35 (COLORREF 0x00BBGGRR -> #070709 is 0x00090707)
         caption_color = ctypes.c_int(0x00090707)
         dwmapi.DwmSetWindowAttribute(
             int(hwnd),
@@ -62,24 +61,24 @@ def global_exception_hook(exc_type, exc_value, exc_traceback) -> None:
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
 
-    err_Details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    sys.stderr.write(f"[CRITICAL EXCEPTION]\n{err_Details}\n")
+    err_details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    sys.stderr.write(f"[CRITICAL EXCEPTION]\n{err_details}\n")
 
     app = QApplication.instance()
     if app is not None:
         msg = QMessageBox()
-        msg.setWindowTitle("LEICA // C270 OPTIX STUDIO — Runtime Fault")
+        msg.setWindowTitle("LUMIXA PRO // C270 CINEMA STUDIO — Runtime Fault")
         msg.setIcon(QMessageBox.Icon.Critical)
         msg.setText("An unexpected runtime exception occurred in the studio pipeline.")
         msg.setInformativeText(str(exc_value))
-        msg.setDetailedText(err_Details)
+        msg.setDetailedText(err_details)
         msg.setStyleSheet(OBSIDIAN_LEICA_STYLESHEET)
         msg.exec()
 
 
 def ensure_output_directories() -> Path:
-    """Ensures ~/Pictures/C270_Optix_Studio exists before launching."""
-    pictures_dir = Path.home() / "Pictures" / "C270_Optix_Studio"
+    """Ensures ~/Pictures/Lumixa_C270_Studio exists before launching."""
+    pictures_dir = Path.home() / "Pictures" / "Lumixa_C270_Studio"
     pictures_dir.mkdir(parents=True, exist_ok=True)
     return pictures_dir
 
@@ -87,16 +86,31 @@ def ensure_output_directories() -> Path:
 def main() -> int:
     sys.excepthook = global_exception_hook
 
-    # High-DPI crispness on fractional scaling displays (125%, 150%, 200%)
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LumixaPro.C270CinemaStudio.3")
+        except Exception:
+            pass
+
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("LEICA // C270 OPTIX STUDIO")
-    app.setOrganizationName("LeicaOptixBroadcast")
+    app.setApplicationName("LUMIXA PRO // C270 CINEMA STUDIO")
+    app.setOrganizationName("LumixaCinemaOptics")
     app.setStyle("Fusion")
+
+    # LAW 1: Automatically render 3D lens emblem to 64x64 QIcon, set as app.setWindowIcon(),
+    # and save lumixa_icon.ico in root folder for Windows Taskbar and Desktop shortcut.
+    root_dir = Path(__file__).resolve().parent
+    ico_path = root_dir / "lumixa_icon.ico"
+    lens_icon = create_lumixa_3d_lens_icon(size=64, save_ico_path=ico_path)
+    app.setWindowIcon(lens_icon)
+
+    # Ensure Windows Desktop shortcut ("Lumixa Pro C270 Studio.lnk") uses lumixa_icon.ico
+    ensure_desktop_shortcut(root_dir)
 
     default_font = QFont("Segoe UI", 9)
     default_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
@@ -106,6 +120,7 @@ def main() -> int:
     output_dir = ensure_output_directories()
 
     window = MainWindow(output_dir=output_dir)
+    window.setWindowIcon(lens_icon)
     apply_windows_dark_titlebar(int(window.winId()))
     window.show()
     apply_windows_dark_titlebar(int(window.winId()))

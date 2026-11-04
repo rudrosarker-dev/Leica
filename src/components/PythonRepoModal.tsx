@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { HardwareButton } from "./StudioWidgets";
 
 export interface RepoFileEntry {
   path: string;
@@ -51,26 +52,27 @@ export const PythonRepoModal: React.FC<{
       aria-modal="true"
       aria-label="Python Desktop Repository and GitHub Export Inspector"
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
-      style={{ backgroundColor: "rgba(7, 7, 9, 0.86)" }}
+      style={{ backgroundColor: "rgba(7, 7, 9, 0.88)" }}
     >
       <div
         className="w-full max-w-[1180px] h-[82vh] rounded-[6px] flex flex-col overflow-hidden"
         style={{
-          backgroundColor: "#0E0E12",
-          border: "1px solid #2C2C38",
+          background: "linear-gradient(180deg, #16161D 0%, #0E0E13 100%)",
+          border: "1px solid #2A2A35",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.75)",
         }}
       >
         {/* Modal Header */}
         <div
           className="h-[48px] px-4 flex items-center justify-between shrink-0"
           style={{
-            backgroundColor: "#0A0A0D",
-            borderBottom: "1px solid #22222B",
+            background: "linear-gradient(180deg, #1A1A22 0%, #0E0E13 100%)",
+            borderBottom: "1px solid #262632",
           }}
         >
           <div className="flex items-center gap-3">
             <span className="text-[12px] font-bold tracking-[1.4px] text-[#F4F4F6]">
-              NATIVE PYTHON (PyQt6) DESKTOP REPOSITORY // GITHUB EXPORT READY
+              LUMIXA PRO // NATIVE PYTHON (PyQt6) DESKTOP REPOSITORY
             </span>
             <span className="font-mono text-[11px] text-[#10B981]">
               {repoFiles.length} FILES · {totalLines.toLocaleString()} LINES VERIFIED
@@ -79,44 +81,25 @@ export const PythonRepoModal: React.FC<{
           <div className="flex items-center gap-2">
             {activeFile && (
               <>
-                <button
-                  type="button"
+                <HardwareButton
+                  label={
+                    copiedFile === activeFile.path
+                      ? "COPIED TO CLIPBOARD"
+                      : `COPY ${activeFile.path}`
+                  }
+                  active={copiedFile === activeFile.path}
+                  ledColor="emerald"
                   onClick={() => handleCopy(activeFile.content, activeFile.path)}
-                  className="h-[28px] px-3 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                  style={{
-                    backgroundColor: "#1C1C24",
-                    border: "1px solid #2C2C38",
-                    color: copiedFile === activeFile.path ? "#10B981" : "#F4F4F6",
-                  }}
-                >
-                  {copiedFile === activeFile.path ? "COPIED TO CLIPBOARD" : `COPY ${activeFile.path}`}
-                </button>
-                <button
-                  type="button"
+                />
+                <HardwareButton
+                  label="DOWNLOAD FILE"
+                  active={true}
+                  ledColor="amber"
                   onClick={() => handleDownloadFile(activeFile)}
-                  className="h-[28px] px-3 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                  style={{
-                    backgroundColor: "#262118",
-                    border: "1px solid #E5A93C",
-                    color: "#E5A93C",
-                  }}
-                >
-                  DOWNLOAD FILE
-                </button>
+                />
               </>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-[28px] px-3 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-              style={{
-                backgroundColor: "#1C1C24",
-                border: "1px solid #2C2C38",
-                color: "#F4F4F6",
-              }}
-            >
-              CLOSE
-            </button>
+            <HardwareButton label="CLOSE" showLed={false} onClick={onClose} />
           </div>
         </div>
 
@@ -130,7 +113,7 @@ export const PythonRepoModal: React.FC<{
             }}
           >
             <div className="text-[10px] font-bold uppercase tracking-[1.2px] text-[#71717A] mb-1 px-2">
-              REPOSITORY FILE TREE
+              REPOSITORY FILE TREE ({repoFiles.length})
             </div>
             {repoFiles.map((file) => {
               const active = activeFile?.path === file.path;
@@ -141,9 +124,14 @@ export const PythonRepoModal: React.FC<{
                   onClick={() => setSelectedPath(file.path)}
                   className="w-full px-2.5 py-2 rounded-[4px] flex items-center justify-between text-left cursor-pointer transition-colors"
                   style={{
-                    backgroundColor: active ? "#262118" : "transparent",
-                    border: active ? "1px solid #E5A93C" : "1px solid transparent",
-                    color: active ? "#E5A93C" : "#F4F4F6",
+                    background: active
+                      ? "linear-gradient(180deg, #2D261B 0%, #1B1710 100%)"
+                      : "linear-gradient(180deg, #181820 0%, #101016 100%)",
+                    borderTop: active ? "1px solid #E5A93C" : "1px solid #262632",
+                    borderBottom: "1px solid #08080B",
+                    borderLeft: active ? "1px solid #B88222" : "1px solid #1C1C26",
+                    borderRight: active ? "1px solid #B88222" : "1px solid #1C1C26",
+                    color: active ? "#F5D08A" : "#D4D4DC",
                   }}
                 >
                   <span className="font-mono text-[11px] truncate">{file.path}</span>
@@ -159,7 +147,7 @@ export const PythonRepoModal: React.FC<{
             <div
               className="h-[34px] px-4 flex items-center justify-between text-[11px] font-mono"
               style={{
-                backgroundColor: "#15151B",
+                background: "linear-gradient(180deg, #16161E 0%, #0E0E14 100%)",
                 borderBottom: "1px solid #22222B",
               }}
             >
@@ -192,25 +180,26 @@ export const StudioGalleryModal: React.FC<{
       aria-modal="true"
       aria-label="Studio Media Gallery"
       className="fixed inset-0 z-50 flex items-center justify-center p-6"
-      style={{ backgroundColor: "rgba(7, 7, 9, 0.86)" }}
+      style={{ backgroundColor: "rgba(7, 7, 9, 0.88)" }}
     >
       <div
         className="w-full max-w-[960px] h-[76vh] rounded-[6px] flex flex-col overflow-hidden"
         style={{
-          backgroundColor: "#0E0E12",
-          border: "1px solid #2C2C38",
+          background: "linear-gradient(180deg, #16161D 0%, #0E0E13 100%)",
+          border: "1px solid #2A2A35",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.75)",
         }}
       >
         <div
           className="h-[48px] px-4 flex items-center justify-between shrink-0"
           style={{
-            backgroundColor: "#0A0A0D",
-            borderBottom: "1px solid #22222B",
+            background: "linear-gradient(180deg, #1A1A22 0%, #0E0E13 100%)",
+            borderBottom: "1px solid #262632",
           }}
         >
           <div className="flex items-center gap-3">
             <span className="text-[12px] font-bold tracking-[1.4px] text-[#F4F4F6]">
-              STUDIO MEDIA GALLERY // ~/Pictures/C270_Optix_Studio
+              LUMIXA PRO MEDIA GALLERY // ~/Pictures/Lumixa_Pro_Studio
             </span>
             <span className="font-mono text-[11px] text-[#E5A93C]">
               {captures.length} CAPTURED ASSETS
@@ -218,31 +207,13 @@ export const StudioGalleryModal: React.FC<{
           </div>
           <div className="flex items-center gap-2">
             {captures.length > 0 && (
-              <button
-                type="button"
+              <HardwareButton
+                label="CLEAR SESSION"
+                showLed={false}
                 onClick={onClearGallery}
-                className="h-[28px] px-3 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-                style={{
-                  backgroundColor: "#1C1C24",
-                  border: "1px solid #2C2C38",
-                  color: "#9CA3AF",
-                }}
-              >
-                CLEAR SESSION
-              </button>
+              />
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-[28px] px-3 rounded-[4px] text-[11px] font-semibold cursor-pointer"
-              style={{
-                backgroundColor: "#1C1C24",
-                border: "1px solid #2C2C38",
-                color: "#F4F4F6",
-              }}
-            >
-              CLOSE
-            </button>
+            <HardwareButton label="CLOSE" showLed={false} onClick={onClose} />
           </div>
         </div>
 
@@ -253,7 +224,7 @@ export const StudioGalleryModal: React.FC<{
                 No Studio Stills Captured in Current Session
               </div>
               <div className="text-[11px] text-[#9CA3AF] max-w-md">
-                Use the tactile Shutter Release or BURST 3X button on the Bottom Transport Deck to capture graded still frames with your active 1D/3D LUT and broadcast overlays.
+                Use the 60px Mechanical Shutter Release or BURST 3X button on the Bottom EVF Bar to capture graded still frames with your active 1D/3D LUT and broadcast overlays.
               </div>
             </div>
           ) : (
@@ -263,8 +234,8 @@ export const StudioGalleryModal: React.FC<{
                   key={item.id}
                   className="rounded-[6px] p-2.5 flex flex-col gap-2"
                   style={{
-                    backgroundColor: "#15151B",
-                    border: "1px solid #22222B",
+                    background: "linear-gradient(180deg, #16161D 0%, #0F0F14 100%)",
+                    border: "1px solid #262632",
                   }}
                 >
                   <img
@@ -281,12 +252,12 @@ export const StudioGalleryModal: React.FC<{
                   </div>
                   <a
                     href={item.dataUrl}
-                    download={`LEICA_C270_${item.timestamp}.${item.format.includes("JPG") ? "jpg" : "png"}`}
+                    download={`LUMIXA_C270_${item.timestamp}.${item.format.includes("JPG") ? "jpg" : "png"}`}
                     className="h-[28px] rounded-[4px] flex items-center justify-center text-[11px] font-semibold no-underline"
                     style={{
-                      backgroundColor: "#262118",
+                      background: "linear-gradient(180deg, #2D261B 0%, #1B1710 100%)",
                       border: "1px solid #E5A93C",
-                      color: "#E5A93C",
+                      color: "#F5D08A",
                     }}
                   >
                     DOWNLOAD MASTER FRAME
