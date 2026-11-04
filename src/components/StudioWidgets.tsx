@@ -156,6 +156,8 @@ export interface HardwareButtonProps {
   label: string;
   active?: boolean;
   ledColor?: 'amber' | 'emerald' | 'crimson' | 'none';
+  showLed?: boolean;
+  fullWidth?: boolean;
   onClick: () => void;
   disabled?: boolean;
   title?: string;
@@ -167,16 +169,18 @@ export const HardwareButton: React.FC<HardwareButtonProps> = ({
   label,
   active = false,
   ledColor = 'amber',
+  showLed,
+  fullWidth = false,
   onClick,
   disabled = false,
   title,
   className = '',
-  height = 34,
+  height = 32,
 }) => {
   const [pressed, setPressed] = useState(false);
   const [hovered, setHovered] = useState(false);
 
-  const showLed = ledColor !== 'none';
+  const shouldShowLed = showLed !== undefined ? showLed : ledColor !== 'none';
 
   const getGradient = () => {
     if (pressed && !disabled) {
@@ -258,8 +262,10 @@ export const HardwareButton: React.FC<HardwareButtonProps> = ({
       }}
       onMouseDown={() => setPressed(true)}
       onMouseUp={() => setPressed(false)}
-      className={`relative rounded-[5px] px-2.5 flex items-center ${
-        showLed ? 'justify-start gap-2' : 'justify-center'
+      className={`relative rounded-[5px] px-2.5 text-[10.5px] font-bold tracking-[0.25px] flex items-center ${
+        fullWidth ? 'w-full' : ''
+      } ${
+        shouldShowLed ? 'justify-start gap-1.5' : 'justify-center'
       } select-none cursor-pointer disabled:cursor-not-allowed transition-transform focus:outline-none ${className}`}
       style={{
         height: `${height}px`,
@@ -275,13 +281,13 @@ export const HardwareButton: React.FC<HardwareButtonProps> = ({
         transform: pressed && !disabled ? 'translateY(1px)' : 'translateY(0)',
       }}
     >
-      {showLed && (
+      {shouldShowLed && (
         <span
-          className="w-[7px] h-[7px] rounded-full shrink-0"
+          className="w-[6px] h-[6px] rounded-full shrink-0"
           style={getLedStyle()}
         />
       )}
-      <span className="text-[11px] font-bold tracking-[0.3px] truncate whitespace-nowrap">
+      <span className="truncate whitespace-nowrap">
         {label}
       </span>
     </button>

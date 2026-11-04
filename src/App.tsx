@@ -366,21 +366,21 @@ export default function App() {
           1. TOP CAMERA TELEMETRY DECK (54px)
       ===================================================================== */}
       <header
-        className="h-[54px] px-3.5 flex items-center justify-between gap-2 shrink-0"
+        className="h-[54px] px-3 flex items-center justify-between gap-2 shrink-0 overflow-hidden"
         style={{
           background: "linear-gradient(180deg, #16161D 0%, #0E0E13 100%)",
           borderBottom: "1px solid #262632",
         }}
       >
         {/* Left: 3D Lens Emblem + Brand Title + Camera Selector + 30-FPS Boost */}
-        <div className="flex items-center gap-2.5 min-w-0">
-          <Lumixa3DLensLogo size={34} />
-          <div className="flex flex-col leading-tight mr-1">
-            <span className="text-[12.5px] font-extrabold tracking-[1.4px] text-[#F4F4F6] whitespace-nowrap">
+        <div className="flex items-center gap-2 shrink-0">
+          <Lumixa3DLensLogo size={32} />
+          <div className="flex flex-col leading-tight mr-0.5">
+            <span className="text-[12px] font-extrabold tracking-[1.3px] text-[#F4F4F6] whitespace-nowrap">
               LUMIXA PRO
             </span>
-            <span className="text-[9px] font-bold tracking-[1.1px] text-[#E5A93C] whitespace-nowrap">
-              C270 OPTICAL ENGINE
+            <span className="text-[8.5px] font-bold tracking-[1px] text-[#E5A93C] whitespace-nowrap">
+              C270 CINEMA STUDIO
             </span>
           </div>
 
@@ -388,7 +388,7 @@ export default function App() {
             aria-label="Select UVC Camera Device"
             value={selectedDevice}
             onChange={(e) => setSelectedDevice(e.target.value)}
-            className="h-[30px] px-2 rounded-[5px] text-[11px] font-semibold text-[#F4F4F6] outline-none cursor-pointer"
+            className="h-[30px] w-[155px] px-1.5 rounded-[5px] text-[10px] font-semibold text-[#F4F4F6] outline-none cursor-pointer truncate"
             style={{
               background: "linear-gradient(180deg, #242430 0%, #14141B 100%)",
               borderTop: "1px solid #3A3A4C",
@@ -398,10 +398,10 @@ export default function App() {
             }}
           >
             <option value="0: Logitech HD Webcam C270 (DirectShow MJPG)">
-              0: Logitech HD Webcam C270 (MJPG)
+              0: Logitech C270 (MJPG)
             </option>
             <option value="1: OBS Virtual Broadcast Camera">
-              1: OBS Virtual Broadcast Camera
+              1: OBS Virtual Camera
             </option>
           </select>
 
@@ -410,21 +410,23 @@ export default function App() {
             active={params.unlock_30fps}
             ledColor="emerald"
             onClick={handleToggle30FpsBoost}
+            className="!px-2 !text-[10px]"
             title="Disables C270 Low-Light Compensation (Backlight=0) and locks -4 EV shutter so framerate never drops to 10 FPS"
           />
 
           <HardwareButton
-            label={useLiveWebcam ? "LIVE UVC: ON" : "SIMULATED SENSOR"}
+            label={useLiveWebcam ? "LIVE UVC: ON" : "SIMULATED"}
             active={useLiveWebcam}
             ledColor="amber"
             onClick={() => setUseLiveWebcam((v) => !v)}
+            className="!px-2 !text-[10px]"
             title="Toggle between live browser webcam stream and interactive C270 optical reference scene"
           />
         </div>
 
         {/* Center: Recessed LCD Digital Telemetry Screen */}
         <div
-          className="hidden xl:flex items-center gap-3 px-3.5 h-[32px] rounded-[4px] font-mono text-[11px] font-semibold tracking-[0.4px] shrink-0"
+          className="hidden xl:flex items-center gap-1.5 px-2.5 h-[30px] rounded-[4px] font-mono text-[10px] font-semibold tracking-[0.2px] shrink-0"
           style={{
             backgroundColor: "#08080B",
             border: "1px solid #262632",
@@ -432,7 +434,7 @@ export default function App() {
           }}
         >
           <span className="text-[#10B981]">
-            {params.upscale_1080p ? "1080P LANCZOS4" : "720P MJPG"}
+            {params.upscale_1080p ? "1080P" : "720P MJPG"}
           </span>
           <span className="text-[#3F3F4E]">|</span>
           <span
@@ -440,23 +442,24 @@ export default function App() {
               color: effectiveFps >= 24 ? "#10B981" : "#EF4444",
             }}
           >
-            FPS: {effectiveFps.toFixed(1)}
+            {effectiveFps.toFixed(1)} FPS
           </span>
           <span className="text-[#3F3F4E]">|</span>
-          <span className="text-[#E5A93C]">SHUTTER: {params.exposure_ev} EV</span>
+          <span className="text-[#E5A93C]">{params.exposure_ev} EV</span>
           <span className="text-[#3F3F4E]">|</span>
-          <span className="text-[#D4D4DC]">ISO/GAIN: {params.hw_gain}</span>
+          <span className="text-[#D4D4DC]">ISO {params.hw_gain}</span>
           <span className="text-[#3F3F4E]">|</span>
-          <span className="text-[#10B981]">SYNC: 1.0X CFR</span>
+          <span className="text-[#10B981]">1.0X CFR</span>
         </div>
 
         {/* Right: Quick Action Hardware Buttons */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <HardwareButton
             label="PURE VIEW"
-            active={pureView}
+            active={params.pure_view_bypass}
             ledColor="amber"
-            onClick={() => setPureView((v) => !v)}
+            onClick={() => updateParam("pure_view_bypass", !params.pure_view_bypass)}
+            className="!px-2 !text-[10px]"
             title="Bypass all software LUTs and adjustments to inspect raw C270 sensor feed"
           />
           <HardwareButton
@@ -464,12 +467,14 @@ export default function App() {
             active={syncLabel === "UP TO DATE"}
             ledColor="emerald"
             onClick={handleGitHubSync}
+            className="!px-2 !text-[10px]"
             title="Fetch and pull latest updates from GitHub repository (git pull --rebase --autostash)"
           />
           <HardwareButton
             label="RESET"
             showLed={false}
             onClick={handleResetAll}
+            className="!px-2 !text-[10px]"
             title="Reset all software ISP and hardware parameters to factory defaults"
           />
           <HardwareButton
@@ -477,12 +482,14 @@ export default function App() {
             active={galleryModalOpen}
             ledColor="amber"
             onClick={() => setGalleryModalOpen(true)}
+            className="!px-2 !text-[10px]"
           />
           <HardwareButton
             label="PYTHON SOURCE"
             active={repoModalOpen}
             ledColor="emerald"
             onClick={() => setRepoModalOpen(true)}
+            className="!px-2 !text-[10px]"
             title="Inspect all 18 native Windows PyQt6 + OpenCV DirectShow Python source files"
           />
         </div>
@@ -492,23 +499,37 @@ export default function App() {
           2. MAIN STUDIO WORKSPACE (EVF VIEWFINDER + RIGHT CONTROL DECK)
       ===================================================================== */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* CENTER COLUMN: DSLR / Cinema EVF Viewfinder (76% width) + Bottom EVF Bar */}
-        <main className="flex-1 flex flex-col min-w-0 p-2.5 gap-2.5 bg-[#09090C]">
+        {/* CENTER COLUMN: DSLR / Cinema EVF Viewfinder + Bottom EVF Bar */}
+        <main className="flex-1 flex flex-col min-w-0 p-2.5 gap-2.5 bg-[#09090C] overflow-hidden">
           <ViewportCanvas
             params={params}
-            pureView={pureView}
             useLiveWebcam={useLiveWebcam}
             isRecording={isRecording}
-            recordingSeconds={recordingSec}
+            recordingTimeSec={recordingSec}
             countdownValue={countdownVal}
-            flashActive={flashActive}
-            onTelemetryUpdate={setTelemetry}
-            onCaptureFrameReady={handleCaptureGetterReady}
+            flashTrigger={flashActive}
+            onTelemetryUpdate={(t) =>
+              setTelemetry({
+                fps: t.fps,
+                processMs: t.processMs,
+                resolution: t.resolution,
+                webcamConnected: t.webcamConnected,
+              })
+            }
+            onCaptureDataUrlReady={handleCaptureGetterReady}
+            onPTZChange={(zoom, panX, tiltY) =>
+              setParams((prev) => ({
+                ...prev,
+                zoom: Math.round(zoom),
+                pan_x: Math.round(panX),
+                tilt_y: Math.round(tiltY),
+              }))
+            }
           />
 
           {/* Bottom Floating EVF Glass Transport Bar (74px) */}
           <div
-            className="h-[74px] px-4 rounded-[6px] flex items-center justify-between gap-3 shrink-0"
+            className="h-[74px] px-3 rounded-[6px] flex items-center justify-between gap-2 shrink-0 overflow-hidden"
             style={{
               background: "linear-gradient(180deg, #16161E 0%, #0E0E14 100%)",
               border: "1px solid #262632",
@@ -516,35 +537,36 @@ export default function App() {
             }}
           >
             {/* Left: Live 16-Segment Audio VU Peak Meter + 50Hz Anti-Flicker Lock */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] font-bold text-[#9CA3AF]">
+                  <span className="font-mono text-[9.5px] font-bold text-[#9CA3AF]">
                     MIC VU (48kHz)
                   </span>
-                  <span className="font-mono text-[10px] font-bold text-[#10B981]">
+                  <span className="font-mono text-[9.5px] font-bold text-[#10B981]">
                     {vuLevelDb.toFixed(1)} dB
                   </span>
                 </div>
                 {renderAudioVuSegments()}
               </div>
               <div
-                className="px-2.5 py-1 rounded-[4px] font-mono text-[10px] font-semibold text-[#10B981]"
+                className="px-2 py-1 rounded-[4px] font-mono text-[9.5px] font-semibold text-[#10B981] whitespace-nowrap"
                 style={{
                   backgroundColor: "#08080B",
                   border: "1px solid #23232E",
                 }}
               >
-                50Hz LOCKED
+                50Hz LOCK
               </div>
             </div>
 
             {/* Center: Mechanical Shutter (60px) & Record (60px) + Timer / Flash / Pause / Burst */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <HardwareButton
                 label={params.timer_sec === 0 ? "TIMER: OFF" : `TIMER: ${params.timer_sec}S`}
                 active={params.timer_sec > 0}
                 ledColor="amber"
+                className="!px-2 !text-[10px]"
                 onClick={() => {
                   const next =
                     params.timer_sec === 0 ? 3 : params.timer_sec === 3 ? 5 : 0;
@@ -552,9 +574,10 @@ export default function App() {
                 }}
               />
               <HardwareButton
-                label="SOFTBOX FLASH"
+                label="FLASH"
                 active={params.screen_flash}
                 ledColor="amber"
+                className="!px-2 !text-[10px]"
                 onClick={() => updateParam("screen_flash", !params.screen_flash)}
               />
 
@@ -574,18 +597,20 @@ export default function App() {
                 active={isPaused}
                 ledColor="amber"
                 disabled={!isRecording}
+                className="!px-2 !text-[10px]"
                 onClick={() => setIsPaused((p) => !p)}
               />
 
               <HardwareButton
                 label="BURST 3X"
                 showLed={false}
+                className="!px-2 !text-[10px]"
                 onClick={handleBurst3x}
                 title="Capture rapid 3-frame studio burst sequence"
               />
 
               <div
-                className="px-2.5 py-1.5 rounded-[4px] font-mono text-[11px] font-bold"
+                className="px-2 py-1.5 rounded-[4px] font-mono text-[10px] font-bold whitespace-nowrap"
                 style={{
                   backgroundColor: "#08080B",
                   border: "1px solid #262632",
@@ -593,17 +618,18 @@ export default function App() {
                 }}
               >
                 {isRecording
-                  ? `REC ${formatDuration(recordingSec)} (${cfrFramesWritten}F · 1.0x CFR)`
+                  ? `REC ${formatDuration(recordingSec)} (${cfrFramesWritten}F · 1.0x)`
                   : "STANDBY · 1.0x CFR"}
               </div>
             </div>
 
             {/* Right: Virtual Broadcast Cam & Aspect Ratio */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               <HardwareButton
-                label={params.virtual_cam_active ? "VIRTUAL CAM: LIVE" : "VIRTUAL CAM"}
+                label={params.virtual_cam_active ? "VCAM: LIVE" : "VIRTUAL CAM"}
                 active={params.virtual_cam_active}
                 ledColor="emerald"
+                className="!px-2 !text-[10px]"
                 onClick={() => {
                   const next = !params.virtual_cam_active;
                   updateParam("virtual_cam_active", next);
@@ -616,10 +642,11 @@ export default function App() {
               />
               <HardwareButton
                 label={
-                  params.aspect_mode === "9:16" ? "ASPECT: 9:16" : "ASPECT: 16:9"
+                  params.aspect_mode === "9:16" ? "9:16" : "16:9"
                 }
                 active={params.aspect_mode === "9:16"}
                 ledColor="amber"
+                className="!px-2 !text-[10px]"
                 onClick={() =>
                   updateParam(
                     "aspect_mode",
@@ -632,10 +659,10 @@ export default function App() {
         </main>
 
         {/* =====================================================================
-            3. RIGHT SEQUENTIAL CONTROL DECK (370px width, 4 Hardware Mode Tabs)
+            3. RIGHT SEQUENTIAL CONTROL DECK (392px width, 4 Hardware Mode Tabs)
         ===================================================================== */}
         <aside
-          className="w-[370px] shrink-0 flex flex-col min-h-0"
+          className="w-[392px] shrink-0 flex flex-col min-h-0"
           style={{
             backgroundColor: "#0F0F14",
             borderLeft: "1px solid #262632",
@@ -643,7 +670,7 @@ export default function App() {
         >
           {/* 4 Tactile Hardware Mode Selector Buttons */}
           <div
-            className="p-2.5 grid grid-cols-4 gap-1.5 shrink-0"
+            className="p-2 grid grid-cols-4 gap-1.5 shrink-0"
             style={{
               backgroundColor: "#0B0B0F",
               borderBottom: "1px solid #24242F",
@@ -653,29 +680,33 @@ export default function App() {
               label="1. EXP/LIGHT"
               active={activeTab === "exposure"}
               ledColor="amber"
+              showLed={false}
               onClick={() => setActiveTab("exposure")}
-              className="!px-1.5 !text-[10px]"
+              className="!px-1 !text-[10px]"
             />
             <HardwareButton
               label="2. COLOR/LUT"
               active={activeTab === "color"}
               ledColor="amber"
+              showLed={false}
               onClick={() => setActiveTab("color")}
-              className="!px-1.5 !text-[10px]"
+              className="!px-1 !text-[10px]"
             />
             <HardwareButton
               label="3. OPTICS/AI"
               active={activeTab === "optics"}
               ledColor="amber"
+              showLed={false}
               onClick={() => setActiveTab("optics")}
-              className="!px-1.5 !text-[10px]"
+              className="!px-1 !text-[10px]"
             />
             <HardwareButton
               label="4. PRESETS(12)"
               active={activeTab === "presets"}
               ledColor="amber"
+              showLed={false}
               onClick={() => setActiveTab("presets")}
-              className="!px-1.5 !text-[10px]"
+              className="!px-1 !text-[10px]"
             />
           </div>
 

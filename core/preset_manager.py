@@ -247,7 +247,7 @@ FACTORY_PRESETS: Dict[str, Dict[str, Any]] = {
     },
 }
 
- PRESET_DESCRIPTIONS: Dict[str, str] = {
+PRESET_DESCRIPTIONS: Dict[str, str] = {
     "01. Pure Natural 30FPS": "Clean 30FPS with natural light",
     "02. Dark Room Bright 30FPS": "High shadow lift + gain for dim bedrooms at 30FPS",
     "03. Pro Zoom / Meet HD": "Crisp sharpness, balanced skin tone, subtle spotlight",

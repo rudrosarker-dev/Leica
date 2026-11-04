@@ -533,7 +533,7 @@ export function buildColorGradingLUTs(params: StudioParams): {
           break;
         }
         case 'Matte Obsidian': {
-          const matte = 0.04 * mw + Math.pow(x, 0.96) * 0.96;
+          const matte = Math.min(1, 0.04 * mw + Math.pow(x, 0.96));
           const sig = 1.0 / (1.0 + Math.exp(-4.2 * (matte - 0.5)));
           const s0 = 1.0 / (1.0 + Math.exp(-4.2 * -0.5));
           const s1 = 1.0 / (1.0 + Math.exp(-4.2 * 0.5));
